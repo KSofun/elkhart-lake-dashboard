@@ -1,0 +1,7 @@
+# Netlify configuration for the Elkhart Lake live dashboard.
+[build]
+  publish = "."                      # the site root (index.html lives here)
+  functions = "netlify/functions"    # serverless functions live here
+
+[build.environment]
+  NODE_VERSION = "20"                # so the function has built-in fetch
