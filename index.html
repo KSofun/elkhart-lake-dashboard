@@ -229,7 +229,8 @@ footer b{color:var(--ink)}
 @media(max-width:480px){.controls{gap:10px}}
 
 /* simple / detailed mode + bottom-line takeaway */
-.modebar{display:flex;align-items:center;justify-content:center;gap:9px;padding:8px 20px;background:#f3f8fb;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.modepick{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:16px 2px 0;font-size:13px;font-weight:600;color:var(--muted)}
+.modepick .sub{font-weight:500;color:var(--muted);font-size:12.5px;margin-left:2px}
 .modeseg{display:inline-flex;background:#e7eef4;border-radius:999px;padding:3px;gap:2px}
 .modeseg button{border:0;background:transparent;font:inherit;font-size:12.5px;font-weight:700;color:var(--muted);padding:6px 14px;border-radius:999px;cursor:pointer;transition:.15s}
 .modeseg button.on{background:#fff;color:var(--ink);box-shadow:var(--shadow2)}
@@ -301,13 +302,6 @@ body:not(.detailed) .detail-only{display:none !important}
     </nav>
   </div>
 </header>
-<div class="modebar">
-  <span>How much detail?</span>
-  <div class="modeseg" id="modeSeg">
-    <button data-mode="simple" class="on">Simple</button>
-    <button data-mode="detailed">Detailed</button>
-  </div>
-</div>
 
 <main>
   <section id="view-overview" class="view on">
@@ -377,6 +371,7 @@ body:not(.detailed) .detail-only{display:none !important}
       </div>
 
       <div class="bottomline" id="bottomBuoy"></div>
+      <div class="modepick"><span>More about this chart:</span><div class="modeseg modeToggle"><button data-mode="simple" class="on">Simple</button><button data-mode="detailed">Detailed</button></div><span class="sub">Detailed adds the explainer, units, and how-to-read below.</span></div>
       <div class="infocard detail-only" id="infocard"></div>
       <div class="glossary detail-only" id="buoyGloss">
         <span><b>°F</b> degrees Fahrenheit (temperature)</span>
@@ -474,6 +469,7 @@ body:not(.detailed) .detail-only{display:none !important}
       </div>
 
       <div class="bottomline" id="bottomWx"></div>
+      <div class="modepick"><span>More about this chart:</span><div class="modeseg modeToggle"><button data-mode="simple" class="on">Simple</button><button data-mode="detailed">Detailed</button></div><span class="sub">Detailed adds the explainer and how-to-read below.</span></div>
       <div class="infocard detail-only" id="wxInfo"></div>
 
       <div class="photo-h" style="--c:#ef6146">Meet the sensor</div>
@@ -534,6 +530,7 @@ body:not(.detailed) .detail-only{display:none !important}
           <div class="chart-box"><div class="chart-host"><canvas id="lvChart"></canvas></div></div>
         </div>
         <div class="bottomline" id="bottomLv"></div>
+        <div class="modepick"><span>More about this chart:</span><div class="modeseg modeToggle"><button data-mode="simple" class="on">Simple</button><button data-mode="detailed">Detailed</button></div><span class="sub">Detailed adds the explainer and how-to-read below.</span></div>
         <div class="infocard detail-only" id="lvInfo"></div>
 
         <div class="photo-h" style="--c:#1f8fc4">Meet the sensor</div>
@@ -596,6 +593,7 @@ body:not(.detailed) .detail-only{display:none !important}
           <div class="chart-box"><div class="chart-host"><canvas id="clmnChart"></canvas></div></div>
         </div>
         <div class="bottomline" id="bottomCl"></div>
+        <div class="modepick"><span>More about this chart:</span><div class="modeseg modeToggle"><button data-mode="simple" class="on">Simple</button><button data-mode="detailed">Detailed</button></div><span class="sub">Detailed adds the explainer and how-to-read below.</span></div>
         <div class="infocard detail-only" id="clmnInfo"></div>
 
         <div class="photo-h" style="--c:#1aa6b7">Meet the instruments</div>
@@ -1334,7 +1332,7 @@ function activate(v){
   try{window.scrollTo({top:0,behavior:'auto'});}catch(e){}
 }
 document.getElementById('tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)activate(b.dataset.view);});
-document.getElementById('modeSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;document.querySelectorAll('#modeSeg button').forEach(x=>x.classList.toggle('on',x===b));document.body.classList.toggle('detailed', b.dataset.mode==='detailed');});
+document.addEventListener('click',e=>{const b=e.target.closest('.modeToggle button');if(!b)return;const det=b.dataset.mode==='detailed';document.body.classList.toggle('detailed',det);document.querySelectorAll('.modeToggle button').forEach(x=>x.classList.toggle('on',x.dataset.mode===(det?'detailed':'simple')));});
 
 lvLatest();lvTiles();lvLearn();lvInfo();lvInsights();lvCross();lvFoot();lvRender();
 (function(){const l=LV.meta,el=document.getElementById('lvMeta');if(el)el.innerHTML=`<span>Lake: <b>Elkhart Lake, Wisconsin</b></span>`+`<span>Sensor: <b>Manhole Metrics ${l.device}</b> (${l.lat}, ${l.lon})</span>`+`<span>Window: <b>${l.first} → ${l.last}</b></span>`;})();
