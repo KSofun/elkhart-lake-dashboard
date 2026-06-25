@@ -9,28 +9,34 @@ exports.handler = async () => {
   const out = { updated: Math.floor(Date.now() / 1000) };
 
   // ---------- Tempest weather station ----------
+  // Use the DEVICE observations endpoint (real-time). The station-level endpoint
+  // can freeze on a stale reading even while the device keeps reporting.
   try {
     const token = process.env.TEMPEST_TOKEN;
-    const station = process.env.TEMPEST_STATION || "180158";
+    const device = process.env.TEMPEST_DEVICE || "425196";
     const r = await fetch(
-      `https://swd.weatherflow.com/swd/rest/observations/station/${station}?token=${token}`
+      `https://swd.weatherflow.com/swd/rest/observations?device_id=${device}&token=${token}`
     );
     const j = await r.json();
-    const o = j.obs && j.obs[0];
+    const o = j.obs && j.obs[0]; // obs_st array: [epoch, lull, windAvg, gust, dir, sampInt, stnPressMB, airC, RH, lux, uv, solar, rain, ...]
     if (o) {
       const C2F = (c) => (c == null ? null : Math.round((c * 9 / 5 + 32) * 10) / 10);
       const MS2MPH = (m) => (m == null ? null : Math.round(m * 2.2369362921 * 10) / 10);
       const MB2INHG = (p) => (p == null ? null : Math.round(p * 0.0295299830714 * 100) / 100);
+      const sum = j.summary || {};
       out.weather = {
-        epoch: o.timestamp,
-        airTemp: C2F(o.air_temperature),
-        feels: C2F(o.feels_like),
-        humidity: o.relative_humidity,
-        wind: MS2MPH(o.wind_avg),
-        gust: MS2MPH(o.wind_gust),
-        uv: o.uv == null ? null : Math.round(o.uv * 10) / 10,
-        pressure: MB2INHG(o.sea_level_pressure != null ? o.sea_level_pressure : o.station_pressure),
+        epoch: o[0],
+        airTemp: C2F(o[7]),
+        feels: C2F(sum.feels_like != null ? sum.feels_like : o[7]),
+        humidity: o[8],
+        wind: MS2MPH(o[2]),
+        gust: MS2MPH(o[3]),
+        uv: o[10] == null ? null : Math.round(o[10] * 10) / 10,
+        pressure: MB2INHG(o[6]),
       };
+    } else {
+      // non-sensitive breadcrumb so we can tell "offline" from "bad token"
+      out.weatherDebug = { httpStatus: r.status, message: (j.status && j.status.status_message) || "no obs returned" };
     }
   } catch (e) {
     out.weatherError = String(e);
@@ -42,7 +48,7 @@ exports.handler = async () => {
     const device = process.env.MANHOLE_DEVICE || "926";
     const since = Math.floor(Date.now() / 1000) - 3 * 86400; // last 3 days
     const r = await fetch(
-      `https://client-device-service.manhole-metrics.com/client_device?device_id=${device}&starting_unix_timestamp=${since}&filter_water_level=true`,
+      `https://client-device.manhole-metrics.com/client_device?device_id=${device}&starting_unix_timestamp=${since}&filter_water_level=true`,
       { headers: { api_key: key } }
     );
     const j = await r.json();
