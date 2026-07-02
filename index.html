@@ -241,6 +241,21 @@ body:not(.detailed) .detail-only{display:none !important}
 /* units glossary */
 .glossary{display:flex;flex-wrap:wrap;gap:8px 18px;margin:14px 0 0;font-size:12.5px;color:var(--muted)}
 .glossary b{color:var(--ink);font-weight:600}
+/* live water-temperature tab */
+.wthero{display:flex;align-items:center;gap:30px;flex-wrap:wrap;background:linear-gradient(135deg,#e8f4fb,#eef7f1);border-radius:22px;padding:28px 30px;margin-top:20px;box-shadow:0 8px 26px rgba(16,42,60,.07)}
+.wtthermo{flex:0 0 auto}
+.wtnow{flex:1 1 220px}
+.wtbig{font-family:Fraunces,Georgia,serif;font-weight:600;font-size:76px;line-height:.95;color:#0e3852}
+.wtbig .wtunit{font-size:30px;color:#1d7fa3;margin-left:4px}
+.wtdesc{font-size:19px;font-weight:600;color:var(--ink);margin-top:8px}
+.wtstamp{font-size:13px;color:var(--muted);margin-top:10px}
+.wtstamp .live{display:inline-block;width:8px;height:8px;border-radius:50%;background:#2ea043;margin-right:6px;vertical-align:middle;box-shadow:0 0 0 3px rgba(46,160,67,.18)}
+.wtscale{margin:26px 2px 0}
+.wtbar{position:relative;height:16px;border-radius:999px;background:linear-gradient(90deg,#2f6fd6,#37b7c4,#3fbf7a,#f0a83e,#e0663e)}
+.wtmarker{position:absolute;top:-7px;left:50%;width:4px;height:30px;background:#0e3852;border-radius:2px;transform:translateX(-50%);box-shadow:0 0 0 3px rgba(255,255,255,.85);transition:left .5s ease}
+.wtticks{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-top:9px}
+.wtzones{display:flex;justify-content:space-between;font-size:12px;font-weight:600;color:#5d7689;margin-top:2px}
+@media(max-width:640px){.wtbig{font-size:60px}.wthero{padding:22px}}
 
 /* ---- lake-vibe polish ---- */
 .tile,.card,.infocard .panel,.rel .panel,details.li,.ovcard,.explorer{border-radius:20px}
@@ -296,6 +311,7 @@ body:not(.detailed) .detail-only{display:none !important}
     <nav class="tabs" id="tabs">
       <button data-view="overview" class="on">Overview</button>
       <button data-view="buoy">Water Quality Buoy</button>
+      <button data-view="watertemp">Water Temperature</button>
       <button data-view="weather">Weather Station</button>
       <button data-view="level">Water Level Monitor</button>
       <button data-view="clmn">Citizen Monitoring</button>
@@ -628,6 +644,60 @@ body:not(.detailed) .detail-only{display:none !important}
           </div>
         </div>
         <div class="dsmeta"><div class="foot-grid" id="clmnMeta"></div></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="view-watertemp" class="view">
+    <section class="skybg2">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="kicker">Live from the dock</div>
+          <h2>Elkhart Lake Water Temperature, Right Now</h2>
+          <p>Here is a fun one. A brand-new sensor sits right at the dock and takes the lake's temperature every few minutes, then beams the number straight to this page. No waiting, no averages, just the water as it feels this very moment. Temperature is the lake's master dial, so this one little reading tells a surprisingly big story.</p>
+        </div>
+
+        <div class="wthero">
+          <div class="wtthermo" aria-hidden="true">
+            <svg width="66" height="150" viewBox="0 0 66 150" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="25" y="12" width="16" height="104" rx="8" fill="#dceaf4"/>
+              <rect x="25" y="54" width="16" height="62" fill="#37b7c4"/>
+              <circle cx="33" cy="126" r="18" fill="#2f6fd6"/>
+              <rect x="25" y="12" width="16" height="104" rx="8" stroke="#9fc0d6" stroke-width="2"/>
+              <circle cx="33" cy="126" r="18" stroke="#2f6fd6" stroke-width="2"/>
+              <line x1="46" y1="30" x2="54" y2="30" stroke="#9fc0d6" stroke-width="2" stroke-linecap="round"/>
+              <line x1="46" y1="52" x2="54" y2="52" stroke="#9fc0d6" stroke-width="2" stroke-linecap="round"/>
+              <line x1="46" y1="74" x2="54" y2="74" stroke="#9fc0d6" stroke-width="2" stroke-linecap="round"/>
+              <line x1="46" y1="96" x2="54" y2="96" stroke="#9fc0d6" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="wtnow">
+            <div class="wtbig"><span id="wtTemp">--</span><span class="wtunit">°F</span></div>
+            <div class="wtdesc" id="wtDesc">Reading the dock sensor...</div>
+            <div class="wtstamp" id="wtStamp"><span class="live"></span>connecting to the live sensor</div>
+          </div>
+        </div>
+
+        <div class="wtscale">
+          <div class="wtbar"><div class="wtmarker" id="wtMarker"></div></div>
+          <div class="wtticks"><span>45°</span><span>56°</span><span>68°</span><span>79°</span><span>90°</span></div>
+          <div class="wtzones"><span>Cold</span><span>Brisk</span><span>Comfortable</span><span>Warm</span></div>
+        </div>
+
+        <div class="bottomline" id="bottomWt"></div>
+
+        <h3 class="learn-title" style="margin-top:34px">What this one number is telling you</h3>
+        <div class="cards" id="wtCards"></div>
+
+        <div class="read detail-only" style="margin-top:30px">
+          <h2>How this reading is measured</h2>
+          <div class="grid">
+            <div><h4>A dock sensor, not the buoy</h4><p>This live number comes from a DockSensIQ sensor mounted right at the dock, separate from the water-quality buoy out in the lake. Think of it as the temperature at the shoreline, where people actually get in the water.</p></div>
+            <div><h4>Near the surface</h4><p>The sensor sits near the surface in shallow, sun-touched water. On a hot, calm afternoon that shoreline water can read a little warmer than the open, deeper lake, which is exactly what a swimmer feels first.</p></div>
+            <div><h4>Live, every few minutes</h4><p>The reading refreshes on its own throughout the day. The time stamp above tells you how fresh the current number is, usually just a few minutes old.</p></div>
+            <div><h4>Want the long view?</h4><p>For temperature history and how it ties to clarity and algae, visit the <b>Water Quality Buoy</b> tab. For top-to-bottom profiles across many years, see <b>Citizen Monitoring</b>.</p></div>
+          </div>
+        </div>
       </div>
     </section>
   </div>
@@ -1303,6 +1373,43 @@ document.getElementById('clmnNext').addEventListener('click',()=>{if(clstate.idx
 document.getElementById('clmnSlider').addEventListener('input',e=>{clstate.idx=+e.target.value;clmnRender();});
 clmnTiles();clmnLearn();clmnInsights();clmnCross();clmnMeta();clmnRender();
 
+// ===================== LIVE WATER TEMPERATURE =====================
+const WT={tempF:null,epoch:null};
+const WT_CARDS=[
+ {icon:'temp',c:'#2f6fd6',title:"Temperature is the lake's master dial",text:"Warm water and cool water are almost like two different lakes. Warm water holds less oxygen, lets algae grow faster, and sends fish looking for cooler company; cool water holds more oxygen and slows the whole system down. Nudge the temperature and you nudge everything else."},
+ {icon:'level',c:'#37b7c4',title:"The lake breathes with the seasons",text:"In summer the surface warms into the 70s and 80s while the deep water stays cold and dark, splitting the lake into stacked layers. When fall arrives the top cools, the layers mix, and the whole lake <em>turns over</em>. This dock reading is the very top of that story, checking in live."},
+ {icon:'clarity',c:'#3fbf7a',title:"What it means for you",text:"Mostly, it means comfort. Upper 70s is easy, stay-in-all-afternoon swimming; the 60s will wake you right up. Anglers watch it too, because fish chase their favorite temperature up and down through the water as the day and the season change."},
+];
+function wtCards(){const host=document.getElementById('wtCards');if(!host)return;host.innerHTML="";
+  const tint={temp:'rgba(47,111,214,.13)',level:'rgba(55,183,196,.13)',clarity:'rgba(63,191,122,.13)'};
+  WT_CARDS.forEach(i=>{const el=document.createElement('div');el.className="card";
+    el.innerHTML=`<div class="ic" style="--ci:${tint[i.icon]||'#eef3f7'};color:${i.c}">${ICONS[i.icon]||ICONS.clarity}</div><div><h3>${i.title}</h3><p>${i.text}</p></div>`;
+    host.appendChild(el);});
+}
+function wtAgo(ep){if(!ep)return '';const s=Math.max(0,Math.floor(Date.now()/1000-ep));if(s<90)return 'just now';const m=Math.round(s/60);if(m<60)return m+' min ago';const h=Math.round(m/60);if(h<48)return h+' hr ago';return Math.round(h/24)+' days ago';}
+function wtComfort(t){
+  let label,bottom;
+  if(t<55){label='Cold, polar-plunge territory';bottom='the water is genuinely cold right now, the kind that takes your breath away.';}
+  else if(t<65){label='Brisk, a quick-dip kind of day';bottom="chilly but swimmable for the brave; most folks won't linger in it.";}
+  else if(t<72){label='Refreshing, cool and swimmable';bottom='cool and refreshing, right in the range a lot of people enjoy on a hot afternoon.';}
+  else if(t<80){label='Comfortable, great for swimming';bottom='right in the sweet spot for swimming, warm enough to stay in and enjoy.';}
+  else if(t<86){label='Bath-warm, and algae loves it too';bottom='very warm and pleasant for people; warm water like this is also when algae grows fastest, so it is worth keeping an eye on.';}
+  else{label='Very warm, watch the algae';bottom='unusually warm. Warm, calm water is prime algae weather, so check the buoy tab if the green signals climb.';}
+  const pct=Math.max(2,Math.min(98,(t-45)/(90-45)*100));
+  return {label,bottom,pct};
+}
+function wtRender(){
+  const tEl=document.getElementById('wtTemp');if(!tEl)return;
+  const dEl=document.getElementById('wtDesc'),sEl=document.getElementById('wtStamp'),mk=document.getElementById('wtMarker'),bb=document.getElementById('bottomWt');
+  if(WT.tempF==null){tEl.textContent='--';if(dEl)dEl.textContent='Reading the dock sensor...';if(sEl)sEl.innerHTML='<span class="live"></span>connecting to the live sensor';if(bb)bb.innerHTML='<b>Bottom line:</b> the live water temperature appears here once the page reaches the sensor (it runs on the published site).';return;}
+  tEl.textContent=WT.tempF.toFixed(1);
+  const c=wtComfort(WT.tempF);
+  if(dEl)dEl.textContent=c.label;
+  if(mk)mk.style.left=c.pct+'%';
+  if(sEl)sEl.innerHTML='<span class="live"></span>Live from the dock sensor, updated '+wtAgo(WT.epoch);
+  if(bb)bb.innerHTML='<b>Bottom line:</b> at <b>'+WT.tempF.toFixed(1)+'°F</b>, '+c.bottom;
+}
+
 // ===================== OVERVIEW + TABS =====================
 function buildOverview(){const host=document.getElementById('ovCards');if(!host)return;host.innerHTML="";
   const F=DATA.facts['2025'], WF=WX.facts, LF=LV.facts;
@@ -1310,6 +1417,9 @@ function buildOverview(){const host=document.getElementById('ovCards');if(!host)
     {v:'buoy',c:'#2f8fd6',ic:ICONS.clarity,name:'Water Quality Buoy',
      desc:'Temperature, clarity, algae, and blue-green algae, measured in the lake every 30 minutes.',
      stat:`Summer water reached <b>${(F.temp_max).toFixed(0)}°F</b>, and clarity stayed in the clear range. Two seasons of data.`},
+    {v:'watertemp',c:'#37b7c4',ic:ICONS.temp,name:'Water Temperature',
+     desc:'The live water temperature at the dock, straight from a new real-time sensor, refreshed every few minutes.',
+     stat:`<span id="ovWtStat">Reading the live dock sensor...</span>`},
     {v:'weather',c:'#ef6146',ic:ICONS.sun,name:'Weather Station',
      desc:'Air temperature, rain, wind, sunshine, and storms from a Tempest station at the lake.',
      stat:`Air hit <b>${WF.air_peak.toFixed(0)}°F</b> and <b>${WF.rain_total.toFixed(0)} in</b> of rain fell over the 2025 season.`},
@@ -1326,9 +1436,9 @@ function buildOverview(){const host=document.getElementById('ovCards');if(!host)
     host.appendChild(el);});
 }
 function activate(v){
-  ['overview','buoy','weather','level','clmn'].forEach(k=>{const el=document.getElementById('view-'+k);if(el)el.classList.toggle('on',k===v);});
+  ['overview','buoy','watertemp','weather','level','clmn'].forEach(k=>{const el=document.getElementById('view-'+k);if(el)el.classList.toggle('on',k===v);});
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
-  if(v==='buoy')render(); else if(v==='weather')wxRender(); else if(v==='level')lvRender(); else if(v==='clmn')clmnRender();
+  if(v==='buoy')render(); else if(v==='weather')wxRender(); else if(v==='level')lvRender(); else if(v==='clmn')clmnRender(); else if(v==='watertemp')wtRender();
   try{window.scrollTo({top:0,behavior:'auto'});}catch(e){}
 }
 document.getElementById('tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)activate(b.dataset.view);});
@@ -1336,6 +1446,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('.modeToggle butt
 
 lvLatest();lvTiles();lvLearn();lvInfo();lvInsights();lvCross();lvFoot();lvRender();
 (function(){const l=LV.meta,el=document.getElementById('lvMeta');if(el)el.innerHTML=`<span>Lake: <b>Elkhart Lake, Wisconsin</b></span>`+`<span>Sensor: <b>Manhole Metrics ${l.device}</b> (${l.lat}, ${l.lon})</span>`+`<span>Window: <b>${l.first} → ${l.last}</b></span>`;})();
+wtCards();wtRender();
 buildOverview();
 activate('overview');
 
@@ -1347,6 +1458,7 @@ async function refreshLive(){
     const fmtT=ep=>{try{return new Date(ep*1000).toLocaleString('en-US',{timeZone:WX.meta.tz||'America/Chicago',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});}catch(e){return '';}};
     if(d.weather&&d.weather.airTemp!=null){Object.assign(WX.meta.latest,d.weather);WX.meta.latest._live=true;wxLatest();}
     if(d.level&&d.level.level!=null){LV.meta.latest.level=d.level.level;LV.meta.latest.epoch=d.level.epoch;LV.meta.latest.dateStr=fmtT(d.level.epoch);LV.meta.latest._live=true;lvLatest();}
+    if(d.waterTemp&&d.waterTemp.tempF!=null){WT.tempF=d.waterTemp.tempF;WT.epoch=d.waterTemp.epoch;wtRender();const ov=document.getElementById('ovWtStat');if(ov)ov.innerHTML='Right now the water is <b>'+WT.tempF.toFixed(1)+'°F</b>.';}
   }catch(e){}
 }
 refreshLive(); setInterval(refreshLive, 120000);

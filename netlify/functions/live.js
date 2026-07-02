@@ -42,6 +42,29 @@ exports.handler = async () => {
     out.weatherError = String(e);
   }
 
+  // ---------- AquaSens dock water-temperature sensor (public, no key) ----------
+  try {
+    const sensor = process.env.AQUASENS_SENSOR || "B4:3A:45:8A:45:C8";
+    const r = await fetch(
+      `https://mgadwaxamcxuxappbyfr.supabase.co/functions/v1/latest-reading?sensor_id=${encodeURIComponent(sensor)}`
+    );
+    if (r.ok) {
+      const j = await r.json();
+      if (j && j.temperature != null) {
+        out.waterTemp = {
+          tempF: Math.round(j.temperature * 10) / 10,
+          epoch: j.timestamp ? Math.floor(new Date(j.timestamp).getTime() / 1000) : out.updated,
+        };
+      } else {
+        out.waterTempDebug = { httpStatus: r.status, message: "no temperature in response" };
+      }
+    } else {
+      out.waterTempDebug = { httpStatus: r.status, message: "non-200 from sensor API" };
+    }
+  } catch (e) {
+    out.waterTempError = String(e);
+  }
+
   // ---------- Manhole Metrics water level ----------
   try {
     const key = process.env.MANHOLE_KEY;
