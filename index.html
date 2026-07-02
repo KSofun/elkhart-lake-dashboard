@@ -241,6 +241,19 @@ body:not(.detailed) .detail-only{display:none !important}
 /* units glossary */
 .glossary{display:flex;flex-wrap:wrap;gap:8px 18px;margin:14px 0 0;font-size:12.5px;color:var(--muted)}
 .glossary b{color:var(--ink);font-weight:600}
+/* overview above-the-fold live tiles */
+.livefold{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:0 0 26px;position:relative;z-index:2}
+.livecard{text-align:left;border:0;cursor:pointer;font:inherit;background:linear-gradient(168deg,#ffffff 0%,#f4fafd 100%);border-radius:20px;box-shadow:0 10px 30px rgba(16,42,60,.10);padding:22px 24px;display:flex;flex-direction:column;gap:3px;transition:transform .15s,box-shadow .15s;border-top:4px solid var(--lc,#37b7c4)}
+.livecard:hover{transform:translateY(-3px);box-shadow:0 16px 38px rgba(16,42,60,.15)}
+.livecard.wt{--lc:#1aa6b7}
+.livecard.air{--lc:#ef6146}
+.lc-label{font-size:12.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
+.lc-val{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:56px;line-height:1;color:#0e3852;margin:2px 0}
+.lc-unit{font-size:24px;color:var(--lc,#37b7c4);margin-left:3px}
+.lc-foot{font-size:12.5px;color:var(--muted)}
+.lc-foot .live{display:inline-block;width:7px;height:7px;border-radius:50%;background:#2ea043;margin-right:5px;vertical-align:middle;box-shadow:0 0 0 3px rgba(46,160,67,.18)}
+.lc-go{font-size:13px;font-weight:700;color:var(--lc,#37b7c4);margin-top:8px}
+@media(max-width:560px){.livefold{grid-template-columns:1fr;gap:12px}.lc-val{font-size:46px}}
 /* live water-temperature tab */
 .wthero{display:flex;align-items:center;gap:30px;flex-wrap:wrap;background:linear-gradient(135deg,#e8f4fb,#eef7f1);border-radius:22px;padding:28px 30px;margin-top:20px;box-shadow:0 8px 26px rgba(16,42,60,.07)}
 .wtthermo{flex:0 0 auto}
@@ -332,6 +345,20 @@ body:not(.detailed) .detail-only{display:none !important}
       </svg>
     </div>
     <div class="wrap">
+      <div class="livefold">
+        <button class="livecard wt" data-view="watertemp">
+          <span class="lc-label">Water temperature</span>
+          <span class="lc-val"><span id="foldWt">--</span><span class="lc-unit">°F</span></span>
+          <span class="lc-foot" id="foldWtFoot">reading the dock sensor...</span>
+          <span class="lc-go">Water Temperature &rarr;</span>
+        </button>
+        <button class="livecard air" data-view="weather">
+          <span class="lc-label">Air temperature</span>
+          <span class="lc-val"><span id="foldAir">--</span><span class="lc-unit">°F</span></span>
+          <span class="lc-foot" id="foldAirFoot">reading the weather station...</span>
+          <span class="lc-go">Weather Station &rarr;</span>
+        </button>
+      </div>
       <div class="ovcards" id="ovCards"></div>
       <p class="ovmore">More lake sensors will join this dashboard over time.</p>
 
@@ -653,8 +680,8 @@ body:not(.detailed) .detail-only{display:none !important}
       <div class="wrap">
         <div class="section-head">
           <div class="kicker">Live from the dock</div>
-          <h2>Elkhart Lake Water Temperature, Right Now</h2>
-          <p>Here is a fun one. A brand-new sensor sits right at the dock and takes the lake's temperature every few minutes, then beams the number straight to this page. No waiting, no averages, just the water as it feels this very moment. Temperature is the lake's master dial, so this one little reading tells a surprisingly big story.</p>
+          <h2>Water Temperature, Right Now</h2>
+          <p>The live reading from a sensor at the dock, refreshed every few minutes.</p>
         </div>
 
         <div class="wthero">
@@ -1409,6 +1436,12 @@ function wtRender(){
   if(sEl)sEl.innerHTML='<span class="live"></span>Live from the dock sensor, updated '+wtAgo(WT.epoch);
   if(bb)bb.innerHTML='<b>Bottom line:</b> at <b>'+WT.tempF.toFixed(1)+'°F</b>, '+c.bottom;
 }
+function renderLiveFold(){
+  const w=document.getElementById('foldWt'),wf=document.getElementById('foldWtFoot');
+  if(w){if(WT.tempF!=null){w.textContent=WT.tempF.toFixed(1);if(wf)wf.innerHTML='<span class="live"></span>updated '+wtAgo(WT.epoch);}else{w.textContent='--';if(wf)wf.textContent='reading the dock sensor...';}}
+  const a=document.getElementById('foldAir'),af=document.getElementById('foldAirFoot'),L=WX.meta.latest;
+  if(a){if(L&&L.airTemp!=null&&L._live){a.textContent=L.airTemp.toFixed(1);if(af)af.innerHTML='<span class="live"></span>updated '+wtAgo(L.epoch);}else{a.textContent='--';if(af)af.textContent='reading the weather station...';}}
+}
 
 // ===================== OVERVIEW + TABS =====================
 function buildOverview(){const host=document.getElementById('ovCards');if(!host)return;host.innerHTML="";
@@ -1446,7 +1479,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('.modeToggle butt
 
 lvLatest();lvTiles();lvLearn();lvInfo();lvInsights();lvCross();lvFoot();lvRender();
 (function(){const l=LV.meta,el=document.getElementById('lvMeta');if(el)el.innerHTML=`<span>Lake: <b>Elkhart Lake, Wisconsin</b></span>`+`<span>Sensor: <b>Manhole Metrics ${l.device}</b> (${l.lat}, ${l.lon})</span>`+`<span>Window: <b>${l.first} → ${l.last}</b></span>`;})();
-wtCards();wtRender();
+wtCards();wtRender();renderLiveFold();
+document.querySelectorAll('.livecard').forEach(b=>b.addEventListener('click',()=>activate(b.dataset.view)));
 buildOverview();
 activate('overview');
 
@@ -1459,6 +1493,7 @@ async function refreshLive(){
     if(d.weather&&d.weather.airTemp!=null){Object.assign(WX.meta.latest,d.weather);WX.meta.latest._live=true;wxLatest();}
     if(d.level&&d.level.level!=null){LV.meta.latest.level=d.level.level;LV.meta.latest.epoch=d.level.epoch;LV.meta.latest.dateStr=fmtT(d.level.epoch);LV.meta.latest._live=true;lvLatest();}
     if(d.waterTemp&&d.waterTemp.tempF!=null){WT.tempF=d.waterTemp.tempF;WT.epoch=d.waterTemp.epoch;wtRender();const ov=document.getElementById('ovWtStat');if(ov)ov.innerHTML='Right now the water is <b>'+WT.tempF.toFixed(1)+'°F</b>.';}
+    renderLiveFold();
   }catch(e){}
 }
 refreshLive(); setInterval(refreshLive, 120000);
