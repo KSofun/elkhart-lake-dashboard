@@ -65,6 +65,40 @@ exports.handler = async () => {
     out.waterTempError = String(e);
   }
 
+  // ---------- Aqua Real Time water-quality buoy ----------
+  // Flow: POST email+password to the GraphQL auth endpoint to get a token,
+  // then GET /slotSummaries (latest reading per tracker) with that token.
+  // Credentials live ONLY in Netlify env vars (AQUA_EMAIL, AQUA_PASSWORD).
+  // This first pass returns the raw summary shape as buoyDebug so we can map fields.
+  try {
+    const email = process.env.AQUA_EMAIL, password = process.env.AQUA_PASSWORD;
+    if (email && password) {
+      const authRes = await fetch("https://algae-auth.herokuapp.com/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: "mutation authUser($email:String!,$password:String!){authUser(email:$email,password:$password){authToken}}",
+          variables: { email, password },
+        }),
+      });
+      const aj = await authRes.json();
+      const token = aj && aj.data && aj.data.authUser && aj.data.authUser.authToken;
+      if (!token) {
+        out.buoyDebug = { step: "login", httpStatus: authRes.status, errors: (aj && aj.errors) || "no token in response" };
+      } else {
+        const sumRes = await fetch("https://algae-device.herokuapp.com/slotSummaries", {
+          headers: { Authorization: "Bearer " + token },
+        });
+        const summaries = await sumRes.json();
+        out.buoyDebug = { step: "slotSummaries", httpStatus: sumRes.status, summaries };
+      }
+    } else {
+      out.buoyDebug = { step: "config", message: "AQUA_EMAIL / AQUA_PASSWORD not set in Netlify env" };
+    }
+  } catch (e) {
+    out.buoyError = String(e);
+  }
+
   // ---------- Manhole Metrics water level ----------
   try {
     const key = process.env.MANHOLE_KEY;
