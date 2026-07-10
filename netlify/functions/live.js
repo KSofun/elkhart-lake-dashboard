@@ -33,6 +33,11 @@ exports.handler = async () => {
         gust: MS2MPH(o[3]),
         uv: o[10] == null ? null : Math.round(o[10] * 10) / 10,
         pressure: MB2INHG(o[6]),
+        rainIn: (() => {
+          const mm = sum.precip_accum_local_day != null ? sum.precip_accum_local_day
+            : (o[18] != null ? o[18] : (o[12] != null ? o[12] : null));
+          return mm == null ? null : Math.round(mm * 0.0393700787 * 100) / 100;
+        })(),
       };
     } else {
       // non-sensitive breadcrumb so we can tell "offline" from "bad token"
@@ -101,19 +106,42 @@ exports.handler = async () => {
           if (d < best) { best = d; pick = t; }
         });
         if (pick) {
-          const v = {};
-          (pick.values || []).forEach((x) => { v[x.name] = x.value; });
           const C2F = (c) => (c == null ? null : Math.round((c * 9 / 5 + 32) * 10) / 10);
           const n2 = (x) => (x == null ? null : Math.round(x * 100) / 100);
+          const sv = {};
+          (pick.values || []).forEach((x) => { sv[x.name] = x.value; });
+          // slotSummaries gives one latest packet (optical channels are often 0 there).
+          // Pull recent HISTORY and take the latest real (non-zero) value per channel.
+          const latest = {}, latestNZ = {};
+          try {
+            const now = Date.now();
+            const histRes = await fetch(`https://algae-device.herokuapp.com/devices/${pick._id}/history/v2`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+              body: JSON.stringify({
+                startDate: new Date(now - 4 * 86400 * 1000).toISOString(),
+                endDate: new Date(now).toISOString(),
+              }),
+            });
+            const hist = await histRes.json();
+            (Array.isArray(hist) ? hist : []).forEach((r) => {
+              const t = Date.parse(r.handshakeTime) || 0;
+              if (!latest[r.name] || t > latest[r.name].t) latest[r.name] = { v: r.val, t };
+              if (r.val != null && r.val !== 0 && (!latestNZ[r.name] || t > latestNZ[r.name].t)) latestNZ[r.name] = { v: r.val, t };
+            });
+          } catch (e) { out.buoyHistError = String(e); }
+          const val = (name, nz) => {
+            const a = nz ? (latestNZ[name] || latest[name]) : (latest[name] || latestNZ[name]);
+            return a ? a.v : (sv[name] != null ? sv[name] : null);
+          };
+          const tOf = (name) => { const a = latest[name] || latestNZ[name]; return a ? Math.floor(a.t / 1000) : null; };
           out.buoy = {
-            epoch: pick.device_last_publish || v.utcTime || out.updated,
+            epoch: tOf("waterTemp") || pick.device_last_publish || sv.utcTime || out.updated,
             name: (pick.name || "").trim(),
-            waterTempF: C2F(v.waterTemp),
-            turbidity: n2(v.turbidity),
-            chlorA: n2(v.chlorA),
-            phycocyanin: n2(v.phycocyanin),
-            battery: v.battSOC == null ? null : Math.round(v.battSOC),
-            signal: v.sigStrength == null ? null : Math.round(v.sigStrength),
+            waterTempF: C2F(val("waterTemp", false)),
+            turbidity: n2(val("turbidity", true)),
+            chlorA: n2(val("chlorA", true)),
+            phycocyanin: n2(val("phycocyanin", true)),
           };
         } else {
           out.buoyDebug = { step: "select", message: "no tracker matched", count: Array.isArray(arr) ? arr.length : 0 };

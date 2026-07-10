@@ -254,6 +254,17 @@ body:not(.detailed) .detail-only{display:none !important}
 .lc-foot .live{display:inline-block;width:7px;height:7px;border-radius:50%;background:#2ea043;margin-right:5px;vertical-align:middle;box-shadow:0 0 0 3px rgba(46,160,67,.18)}
 .lc-go{font-size:13px;font-weight:700;color:var(--lc,#37b7c4);margin-top:8px}
 @media(max-width:560px){.livefold{grid-template-columns:1fr;gap:12px;margin:-30px 0 26px}.lc-val{font-size:46px}}
+/* real-time buoy metric grid */
+.livegrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.livemetric{background:linear-gradient(168deg,#ffffff 0%,#f6fbfd 100%);border-radius:18px;box-shadow:0 8px 26px rgba(16,42,60,.07);padding:16px 18px;border-top:4px solid var(--c);display:flex;flex-direction:column}
+.livemetric .lm-top{display:flex;align-items:center;gap:8px;color:var(--c);font-size:13px;font-weight:700}
+.livemetric .lm-top .lm-nm{color:var(--ink)}
+.livemetric .lm-top svg{width:20px;height:20px;flex:none}
+.livemetric .lm-val{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:34px;color:#0e3852;line-height:1;margin:11px 0 2px}
+.livemetric .lm-val small{font-size:14px;color:var(--muted);font-weight:600;margin-left:2px}
+.livemetric .lm-why{font-size:12.5px;color:var(--muted);margin-top:7px;line-height:1.45}
+@media(max-width:820px){.livegrid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.livegrid{grid-template-columns:1fr}}
 /* live water-temperature tab */
 .wthero{display:flex;align-items:center;gap:30px;flex-wrap:wrap;background:linear-gradient(135deg,#e8f4fb,#eef7f1);border-radius:22px;padding:28px 30px;margin-top:20px;box-shadow:0 8px 26px rgba(16,42,60,.07)}
 .wtthermo{flex:0 0 auto}
@@ -373,11 +384,19 @@ body:not(.detailed) .detail-only{display:none !important}
   <div id="view-buoy" class="view">
   <section id="snapshot">
     <div class="wrap">
-      <div class="latest" id="buoyLatest" style="display:none"></div>
+      <div id="buoyLiveWrap" style="display:none">
+        <div class="section-head" style="margin-bottom:12px">
+          <div class="kicker" style="color:#1aa6b7">Live right now</div>
+          <h2>The lake, in real time</h2>
+          <p>Fresh readings straight from the water-quality buoy and weather station out on the lake, updating on their own throughout the day.</p>
+        </div>
+        <div class="livegrid" id="buoyLiveGrid"></div>
+        <p class="wx-foot" id="buoyLiveTs" style="border:0;padding-top:10px;margin-top:4px"></p>
+      </div>
       <div class="section-head">
-        <div class="kicker">At a glance</div>
+        <div class="kicker">On record: 2024 &amp; 2025 seasons</div>
         <h2 id="snapTitle">How's the lake doing?</h2>
-        <p id="snapSub">Typical conditions for the monitored season. Switch years below to compare.</p>
+        <p id="snapSub">The bigger picture, from full seasons of buoy data we have on record. Switch years below to compare.</p>
       </div>
       <div class="tiles" id="tiles"></div>
     </div>
@@ -1452,22 +1471,41 @@ function renderLiveFold(){
 
 // ===================== LIVE BUOY READOUT =====================
 let BUOY=null;
-function buoyLatest(){
-  const host=document.getElementById('buoyLatest'); if(!host)return;
-  if(!BUOY||BUOY.waterTempF==null){host.style.display='none';return;}
-  host.style.display='';
-  let ts='';try{ts=new Date(BUOY.epoch*1000).toLocaleString('en-US',{timeZone:(WX.meta&&WX.meta.tz)||'America/Chicago',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}catch(e){ts='';}
-  const opt=[];
-  if(BUOY.turbidity>0)opt.push(`<span class="it">Turbidity <b>${BUOY.turbidity} NTU</b></span>`);
-  if(BUOY.chlorA>0)opt.push(`<span class="it">Algae <b>${BUOY.chlorA}</b></span>`);
-  if(BUOY.phycocyanin>0)opt.push(`<span class="it">Blue-green algae <b>${BUOY.phycocyanin}</b></span>`);
-  const optHtml=opt.length?opt.join(''):`<span class="it" style="opacity:.85">Clarity and algae sensors are coming online</span>`;
-  host.innerHTML=`<span class="now"><span class="dot"></span>Live from the buoy</span>`+
-    `<span class="big">${BUOY.waterTempF.toFixed(1)}°F</span>`+
-    `<span class="it">water temp</span>`+optHtml+
-    (BUOY.battery!=null?`<span class="it">Battery <b>${BUOY.battery}%</b></span>`:'')+
-    (BUOY.signal!=null?`<span class="it">Signal <b>${BUOY.signal}%</b></span>`:'')+
-    `<span class="ts">as of ${ts}</span>`;
+const _wt='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">';
+const BUOY_METRICS=[
+ {k:'waterTempF',src:'buoy',c:'#e8743b',label:'Water temperature',unit:'°F',dec:1,
+  icon:_wt+'<path d="M14 14.76V5a2 2 0 0 0-4 0v9.76a4 4 0 1 0 4 0z"/></svg>',
+  why:"The lake's master dial. Warm water holds less oxygen and lets algae grow faster."},
+ {k:'turbidity',src:'buoy',c:'#2f8fd6',label:'Turbidity',unit:'NTU',dec:1,
+  icon:_wt+'<path d="M12 2.7s6 6.6 6 10.6a6 6 0 0 1-12 0c0-4 6-10.6 6-10.6z"/></svg>',
+  why:"How cloudy the water is. Lower is clearer, meaning more light for plants and easier swimming."},
+ {k:'chlorA',src:'buoy',c:'#36a866',label:'Chlorophyll-a',unit:'RFU',dec:0,
+  icon:_wt+'<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z"/><path d="M2 21c0-3 1.85-5.36 5.08-6"/></svg>',
+  why:"The green pigment in algae. A little feeds the food web; a lot can signal a bloom building."},
+ {k:'phycocyanin',src:'buoy',c:'#7e6bd6',label:'Blue-green algae',unit:'RFU',dec:0,
+  icon:_wt+'<path d="M12 2.7s6 6.6 6 10.6a6 6 0 0 1-12 0c0-4 6-10.6 6-10.6z"/><path d="M9 13h6"/></svg>',
+  why:"The pigment of cyanobacteria. Worth a closer look during warm, calm summer stretches."},
+ {k:'wind',src:'wx',c:'#1aa6b7',label:'Wind',unit:'mph',dec:0,
+  icon:_wt+'<path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h8a2.5 2.5 0 1 1-2.5 2.5"/></svg>',
+  why:"Wind stirs and mixes the lake; calm days let surface algae gather and the top warm up."},
+ {k:'rainIn',src:'wx',c:'#3b7fc4',label:'Rain today',unit:'in',dec:2,
+  icon:_wt+'<path d="M16 13a5 5 0 0 0-1-9.9A6 6 0 0 0 4 8a4 4 0 0 0 .5 8"/><path d="M8 19v2M12 19v2M16 19v2"/></svg>',
+  why:"Rain and runoff carry nutrients in and stir up sediment, a big driver of water quality."},
+];
+function buoyLive(){
+  const wrap=document.getElementById('buoyLiveWrap'); if(!wrap)return;
+  const L=WX.meta.latest, haveAny=(BUOY!=null)||(L&&L._live);
+  wrap.style.display=haveAny?'':'none'; if(!haveAny)return;
+  const get=(m)=>{ if(m.src==='buoy')return BUOY?BUOY[m.k]:null; return (L&&L._live)?L[m.k]:null; };
+  const grid=document.getElementById('buoyLiveGrid');
+  grid.innerHTML=BUOY_METRICS.map(m=>{
+    const v=get(m);
+    const disp=(v==null)?'<small>waiting</small>':(Number(v).toFixed(m.dec)+'<small>'+m.unit+'</small>');
+    return `<div class="livemetric" style="--c:${m.c}"><div class="lm-top">${m.icon}<span class="lm-nm">${m.label}</span></div><div class="lm-val">${disp}</div><div class="lm-why">${m.why}</div></div>`;
+  }).join('');
+  const ts=document.getElementById('buoyLiveTs');
+  if(ts){let s='';if(BUOY&&BUOY.epoch){try{s=new Date(BUOY.epoch*1000).toLocaleString('en-US',{timeZone:(WX.meta&&WX.meta.tz)||'America/Chicago',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}catch(e){}}
+    ts.innerHTML=s?`<span style="color:#1aa6b7;font-weight:700">Live</span> &nbsp; buoy last reported ${s}`:'';}
 }
 
 // ===================== OVERVIEW + TABS =====================
@@ -1506,7 +1544,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('.modeToggle butt
 
 lvLatest();lvTiles();lvLearn();lvInfo();lvInsights();lvCross();lvFoot();lvRender();
 (function(){const l=LV.meta,el=document.getElementById('lvMeta');if(el)el.innerHTML=`<span>Lake: <b>Elkhart Lake, Wisconsin</b></span>`+`<span>Sensor: <b>Manhole Metrics ${l.device}</b> (${l.lat}, ${l.lon})</span>`+`<span>Window: <b>${l.first} → ${l.last}</b></span>`;})();
-wtCards();wtRender();renderLiveFold();buoyLatest();
+wtCards();wtRender();renderLiveFold();buoyLive();
 document.querySelectorAll('.livecard').forEach(b=>b.addEventListener('click',()=>activate(b.dataset.view)));
 buildOverview();
 activate('overview');
@@ -1520,8 +1558,8 @@ async function refreshLive(){
     if(d.weather&&d.weather.airTemp!=null){Object.assign(WX.meta.latest,d.weather);WX.meta.latest._live=true;wxLatest();}
     if(d.level&&d.level.level!=null){LV.meta.latest.level=d.level.level;LV.meta.latest.epoch=d.level.epoch;LV.meta.latest.dateStr=fmtT(d.level.epoch);LV.meta.latest._live=true;lvLatest();}
     if(d.waterTemp&&d.waterTemp.tempF!=null){WT.tempF=d.waterTemp.tempF;WT.epoch=d.waterTemp.epoch;wtRender();const ov=document.getElementById('ovWtStat');if(ov)ov.innerHTML='Right now the water is <b>'+WT.tempF.toFixed(1)+'°F</b>.';}
-    if(d.buoy&&d.buoy.waterTempF!=null){BUOY=d.buoy;buoyLatest();}
-    renderLiveFold();
+    if(d.buoy&&d.buoy.waterTempF!=null){BUOY=d.buoy;}
+    renderLiveFold();buoyLive();
   }catch(e){}
 }
 refreshLive(); setInterval(refreshLive, 120000);
