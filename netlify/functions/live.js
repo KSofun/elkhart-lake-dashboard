@@ -89,8 +89,35 @@ exports.handler = async () => {
         const sumRes = await fetch("https://algae-device.herokuapp.com/slotSummaries", {
           headers: { Authorization: "Bearer " + token },
         });
-        const summaries = await sumRes.json();
-        out.buoyDebug = { step: "slotSummaries", httpStatus: sumRes.status, summaries };
+        const arr = await sumRes.json();
+        // Pick the Elkhart Lake buoy: AQUA_SLOT override, else nearest to Elkhart coords.
+        const ELK_LAT = 43.82, ELK_LON = -88.03, target = process.env.AQUA_SLOT;
+        let pick = null, best = Infinity;
+        (Array.isArray(arr) ? arr : []).forEach((t) => {
+          if (target && t._id === target) { pick = t; best = -1; return; }
+          if (best === -1) return;
+          const dLat = (t.gpsLat || 0) - ELK_LAT, dLon = (t.gpsLong || 0) - ELK_LON;
+          const d = dLat * dLat + dLon * dLon;
+          if (d < best) { best = d; pick = t; }
+        });
+        if (pick) {
+          const v = {};
+          (pick.values || []).forEach((x) => { v[x.name] = x.value; });
+          const C2F = (c) => (c == null ? null : Math.round((c * 9 / 5 + 32) * 10) / 10);
+          const n2 = (x) => (x == null ? null : Math.round(x * 100) / 100);
+          out.buoy = {
+            epoch: pick.device_last_publish || v.utcTime || out.updated,
+            name: (pick.name || "").trim(),
+            waterTempF: C2F(v.waterTemp),
+            turbidity: n2(v.turbidity),
+            chlorA: n2(v.chlorA),
+            phycocyanin: n2(v.phycocyanin),
+            battery: v.battSOC == null ? null : Math.round(v.battSOC),
+            signal: v.sigStrength == null ? null : Math.round(v.sigStrength),
+          };
+        } else {
+          out.buoyDebug = { step: "select", message: "no tracker matched", count: Array.isArray(arr) ? arr.length : 0 };
+        }
       }
     } else {
       out.buoyDebug = { step: "config", message: "AQUA_EMAIL / AQUA_PASSWORD not set in Netlify env" };

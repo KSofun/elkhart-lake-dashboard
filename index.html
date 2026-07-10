@@ -373,6 +373,7 @@ body:not(.detailed) .detail-only{display:none !important}
   <div id="view-buoy" class="view">
   <section id="snapshot">
     <div class="wrap">
+      <div class="latest" id="buoyLatest" style="display:none"></div>
       <div class="section-head">
         <div class="kicker">At a glance</div>
         <h2 id="snapTitle">How's the lake doing?</h2>
@@ -1449,6 +1450,26 @@ function renderLiveFold(){
   if(a){if(L&&L.airTemp!=null&&L._live){a.textContent=L.airTemp.toFixed(1);if(af)af.innerHTML='<span class="live"></span>updated '+wtAgo(L.epoch);}else{a.textContent='--';if(af)af.textContent='reading the weather station...';}}
 }
 
+// ===================== LIVE BUOY READOUT =====================
+let BUOY=null;
+function buoyLatest(){
+  const host=document.getElementById('buoyLatest'); if(!host)return;
+  if(!BUOY||BUOY.waterTempF==null){host.style.display='none';return;}
+  host.style.display='';
+  let ts='';try{ts=new Date(BUOY.epoch*1000).toLocaleString('en-US',{timeZone:(WX.meta&&WX.meta.tz)||'America/Chicago',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}catch(e){ts='';}
+  const opt=[];
+  if(BUOY.turbidity>0)opt.push(`<span class="it">Turbidity <b>${BUOY.turbidity} NTU</b></span>`);
+  if(BUOY.chlorA>0)opt.push(`<span class="it">Algae <b>${BUOY.chlorA}</b></span>`);
+  if(BUOY.phycocyanin>0)opt.push(`<span class="it">Blue-green algae <b>${BUOY.phycocyanin}</b></span>`);
+  const optHtml=opt.length?opt.join(''):`<span class="it" style="opacity:.85">Clarity and algae sensors are coming online</span>`;
+  host.innerHTML=`<span class="now"><span class="dot"></span>Live from the buoy</span>`+
+    `<span class="big">${BUOY.waterTempF.toFixed(1)}°F</span>`+
+    `<span class="it">water temp</span>`+optHtml+
+    (BUOY.battery!=null?`<span class="it">Battery <b>${BUOY.battery}%</b></span>`:'')+
+    (BUOY.signal!=null?`<span class="it">Signal <b>${BUOY.signal}%</b></span>`:'')+
+    `<span class="ts">as of ${ts}</span>`;
+}
+
 // ===================== OVERVIEW + TABS =====================
 function buildOverview(){const host=document.getElementById('ovCards');if(!host)return;host.innerHTML="";
   const F=DATA.facts['2025'], WF=WX.facts, LF=LV.facts;
@@ -1485,7 +1506,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('.modeToggle butt
 
 lvLatest();lvTiles();lvLearn();lvInfo();lvInsights();lvCross();lvFoot();lvRender();
 (function(){const l=LV.meta,el=document.getElementById('lvMeta');if(el)el.innerHTML=`<span>Lake: <b>Elkhart Lake, Wisconsin</b></span>`+`<span>Sensor: <b>Manhole Metrics ${l.device}</b> (${l.lat}, ${l.lon})</span>`+`<span>Window: <b>${l.first} → ${l.last}</b></span>`;})();
-wtCards();wtRender();renderLiveFold();
+wtCards();wtRender();renderLiveFold();buoyLatest();
 document.querySelectorAll('.livecard').forEach(b=>b.addEventListener('click',()=>activate(b.dataset.view)));
 buildOverview();
 activate('overview');
@@ -1499,6 +1520,7 @@ async function refreshLive(){
     if(d.weather&&d.weather.airTemp!=null){Object.assign(WX.meta.latest,d.weather);WX.meta.latest._live=true;wxLatest();}
     if(d.level&&d.level.level!=null){LV.meta.latest.level=d.level.level;LV.meta.latest.epoch=d.level.epoch;LV.meta.latest.dateStr=fmtT(d.level.epoch);LV.meta.latest._live=true;lvLatest();}
     if(d.waterTemp&&d.waterTemp.tempF!=null){WT.tempF=d.waterTemp.tempF;WT.epoch=d.waterTemp.epoch;wtRender();const ov=document.getElementById('ovWtStat');if(ov)ov.innerHTML='Right now the water is <b>'+WT.tempF.toFixed(1)+'°F</b>.';}
+    if(d.buoy&&d.buoy.waterTempF!=null){BUOY=d.buoy;buoyLatest();}
     renderLiveFold();
   }catch(e){}
 }
