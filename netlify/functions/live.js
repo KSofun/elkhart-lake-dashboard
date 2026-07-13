@@ -181,25 +181,48 @@ exports.handler = async (event) => {
             try { j = await r.json(); } catch (e2) { return { status: r.status, arr: null, id, days }; }
             return { status: r.status, arr: Array.isArray(j) ? j : null, id, days, keys: !Array.isArray(j) && j && typeof j === "object" ? Object.keys(j).slice(0, 8) : undefined };
           };
-          // Candidate ids: the one from GET /slots (what the docs say to use) first, then the
-          // slotSummaries _id we were using before.
+          // We don't know which id /history/v2 wants, so harvest EVERY Mongo-style id from the
+          // slot + summary objects and try each one. Whichever returns rows is the right id.
           const nm = (pick.name || "").trim();
           let slotMatch = null;
           if (Array.isArray(slots)) {
             slotMatch = slots.find((s) => ((s.name || "").trim() === nm)) || slots.find((s) => s._id === pick._id) || null;
           }
+          if (FRESH && slotMatch) out.buoySlotFull = slotMatch;
           const ids = [];
-          if (slotMatch) [slotMatch._id, slotMatch.id, slotMatch.slotId].forEach((x) => { if (x && !ids.includes(x)) ids.push(x); });
-          if (pick._id && !ids.includes(pick._id)) ids.push(pick._id);
+          const isId = (v) => typeof v === "string" && /^[a-f0-9]{24}$/i.test(v);
+          const harvest = (obj, depth) => {
+            if (!obj || typeof obj !== "object" || depth > 2 || ids.length >= 6) return;
+            Object.entries(obj).forEach(([k, v]) => {
+              if (/account|viewer/i.test(k)) return; // not device ids
+              if (isId(v)) { if (!ids.includes(v)) ids.push(v); }
+              else if (v && typeof v === "object" && !Array.isArray(v)) harvest(v, depth + 1);
+            });
+          };
+          if (slotMatch && slotMatch._id) ids.push(slotMatch._id);
+          harvest(slotMatch, 0);
+          harvest(pick, 0);
           try {
             let hist = null;
             const tried = [];
             outer: for (const id of ids) {
-              for (const d of [3, 1]) {
-                const res = await pullHist(id, d);
-                tried.push({ id, days: d, status: res.status, len: res.arr ? res.arr.length : null });
-                if (res.arr && res.arr.length) { hist = res.arr; break outer; }
-              }
+              const res = await pullHist(id, 2);
+              tried.push({ id, status: res.status, len: res.arr ? res.arr.length : null });
+              if (res.arr && res.arr.length) { hist = res.arr; break outer; }
+            }
+            // last resort: the pre-v2 endpoint, in case /v2 is not what this account uses
+            if (!hist && ids.length) {
+              try {
+                const now2 = Date.now();
+                const r2 = await fetch(`https://algae-device.herokuapp.com/devices/${ids[0]}/history`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+                  body: JSON.stringify({ startDate: new Date(now2 - 2 * 86400 * 1000).toISOString(), endDate: new Date(now2).toISOString() }),
+                });
+                const j2 = await r2.json();
+                tried.push({ id: ids[0], endpoint: "history (no v2)", status: r2.status, len: Array.isArray(j2) ? j2.length : null });
+                if (Array.isArray(j2) && j2.length) hist = j2;
+              } catch (e3) { tried.push({ endpoint: "history (no v2)", error: String(e3) }); }
             }
             histInfo = { tried, matchedSlot: !!slotMatch };
             (hist || []).forEach((r) => {
