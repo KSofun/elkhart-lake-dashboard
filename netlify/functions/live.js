@@ -5,6 +5,13 @@
 // Add a new sensor later by adding another try/catch block that fetches its API
 // and puts the result on the `out` object (e.g. out.buoy = {...}).
 
+// The Aqua API is rate-sensitive: it starts returning empty history if we hit it too often.
+// Netlify reuses warm containers, so cache the auth token and the buoy result at module scope
+// instead of re-authenticating and re-pulling history on every single request.
+let CACHE = { token: null, tokenAt: 0, buoy: null, buoyStats: null, buoyAt: 0, dbg: null };
+const TOKEN_TTL = 40 * 60 * 1000; // reuse the auth token for 40 min
+const BUOY_TTL = 8 * 60 * 1000; // re-pull buoy history at most every 8 min
+
 exports.handler = async () => {
   const out = { updated: Math.floor(Date.now() / 1000) };
 
@@ -77,19 +84,32 @@ exports.handler = async () => {
   // This first pass returns the raw summary shape as buoyDebug so we can map fields.
   try {
     const email = process.env.AQUA_EMAIL, password = process.env.AQUA_PASSWORD;
-    if (email && password) {
-      const authRes = await fetch("https://algae-auth.herokuapp.com/graphql", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: "mutation authUser($email:String!,$password:String!){authUser(email:$email,password:$password){authToken}}",
-          variables: { email, password },
-        }),
-      });
-      const aj = await authRes.json();
-      const token = aj && aj.data && aj.data.authUser && aj.data.authUser.authToken;
+    const nowMs = Date.now();
+    if (email && password && CACHE.buoy && nowMs - CACHE.buoyAt < BUOY_TTL) {
+      // still fresh from a recent invocation - don't touch their API at all
+      out.buoy = CACHE.buoy;
+      out.buoyStats = CACHE.buoyStats || {};
+      out.buoyCached = true;
+      if (CACHE.dbg) out.buoyHistDebug = CACHE.dbg;
+    } else if (email && password) {
+      let token = CACHE.token && nowMs - CACHE.tokenAt < TOKEN_TTL ? CACHE.token : null;
+      let authStatus = null;
       if (!token) {
-        out.buoyDebug = { step: "login", httpStatus: authRes.status, errors: (aj && aj.errors) || "no token in response" };
+        const authRes = await fetch("https://algae-auth.herokuapp.com/graphql", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: "mutation authUser($email:String!,$password:String!){authUser(email:$email,password:$password){authToken}}",
+            variables: { email, password },
+          }),
+        });
+        authStatus = authRes.status;
+        const aj = await authRes.json();
+        token = (aj && aj.data && aj.data.authUser && aj.data.authUser.authToken) || null;
+        if (token) { CACHE.token = token; CACHE.tokenAt = nowMs; }
+      }
+      if (!token) {
+        out.buoyDebug = { step: "login", httpStatus: authStatus, errors: "no token in response" };
       } else {
         const sumRes = await fetch("https://algae-device.herokuapp.com/slotSummaries", {
           headers: { Authorization: "Bearer " + token },
@@ -124,35 +144,38 @@ exports.handler = async () => {
           LIGHTS.forEach((n) => { OK[n] = (x) => x >= 0 && x < 10000; });
           const seen = {}, good = {}, series = {};
           let histInfo = null;
-          try {
+          // Their history endpoint sometimes answers 200 with an empty array. Retry with
+          // progressively shorter windows before giving up.
+          const pullHist = async (days) => {
             const now = Date.now();
-            const histRes = await fetch(`https://algae-device.herokuapp.com/devices/${pick._id}/history/v2`, {
+            const r = await fetch(`https://algae-device.herokuapp.com/devices/${pick._id}/history/v2`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
               body: JSON.stringify({
-                startDate: new Date(now - 7 * 86400 * 1000).toISOString(),
+                startDate: new Date(now - days * 86400 * 1000).toISOString(),
                 endDate: new Date(now).toISOString(),
               }),
             });
+            let j = null;
+            try { j = await r.json(); } catch (e2) { return { status: r.status, arr: null, days }; }
+            return { status: r.status, arr: Array.isArray(j) ? j : null, days, keys: !Array.isArray(j) && j && typeof j === "object" ? Object.keys(j).slice(0, 8) : undefined };
+          };
+          try {
             let hist = null;
-            try { hist = await histRes.json(); } catch (e2) { histInfo = { status: histRes.status, note: "response was not JSON" }; }
-            if (hist != null) {
-              histInfo = {
-                status: histRes.status,
-                isArray: Array.isArray(hist),
-                len: Array.isArray(hist) ? hist.length : null,
-                keys: !Array.isArray(hist) && hist && typeof hist === "object" ? Object.keys(hist).slice(0, 8) : undefined,
-              };
-              (Array.isArray(hist) ? hist : []).forEach((r) => {
-                const t = Date.parse(r.handshakeTime) || 0, x = r.val;
-                seen[r.name] = 1;
-                const f = OK[r.name];
-                if (x != null && (!f || f(x))) {
-                  (series[r.name] = series[r.name] || []).push({ v: x, t });
-                  if (!good[r.name] || t > good[r.name].t) good[r.name] = { v: x, t };
-                }
-              });
+            for (const d of [3, 1, 0.5]) {
+              const res = await pullHist(d);
+              histInfo = { status: res.status, days: res.days, len: res.arr ? res.arr.length : null, keys: res.keys };
+              if (res.arr && res.arr.length) { hist = res.arr; break; }
             }
+            (hist || []).forEach((r) => {
+              const t = Date.parse(r.handshakeTime) || 0, x = r.val;
+              seen[r.name] = 1;
+              const f = OK[r.name];
+              if (x != null && (!f || f(x))) {
+                (series[r.name] = series[r.name] || []).push({ v: x, t });
+                if (!good[r.name] || t > good[r.name].t) good[r.name] = { v: x, t };
+              }
+            });
           } catch (e) { out.buoyHistError = String(e); }
           // If history came back empty, don't blank the tiles: fall back to the single latest
           // packet from slotSummaries, run through the same sanity filter.
@@ -211,7 +234,12 @@ exports.handler = async () => {
             const s = statsFor(n, cv);
             if (s) out.buoyStats[n] = s;
           });
-          out.buoyChannels = Object.keys(seen); // temp: confirms the solar-light channel name
+          out.buoyChannels = Object.keys(seen);
+          // Cache so subsequent invocations reuse this instead of hammering their API.
+          CACHE.buoy = out.buoy;
+          CACHE.buoyStats = out.buoyStats;
+          CACHE.buoyAt = nowMs;
+          CACHE.dbg = out.buoyHistDebug || null;
         } else {
           out.buoyDebug = { step: "select", message: "no tracker matched", count: Array.isArray(arr) ? arr.length : 0 };
         }
