@@ -73,6 +73,7 @@ exports.handler = async (event) => {
         wind: MS2MPH(o[2]),
         gust: MS2MPH(o[3]),
         uv: o[10] == null ? null : Math.round(o[10] * 10) / 10,
+        solar: o[11] == null ? null : Math.round(o[11]), // solar radiation, W/m2 (obs_st idx 11)
         pressure: MB2INHG(o[6]),
         rainIn: (() => {
           const mm = sum.precip_accum_local_day != null ? sum.precip_accum_local_day
