@@ -8,7 +8,8 @@
 // The Aqua API is rate-sensitive: it starts returning empty history if we hit it too often.
 // Netlify reuses warm containers, so cache the auth token and the buoy result at module scope
 // instead of re-authenticating and re-pulling history on every single request.
-let CACHE = { token: null, tokenAt: 0, buoy: null, buoyStats: null, buoyAt: 0, dbg: null };
+let CACHE = { token: null, tokenAt: 0, buoy: null, buoyStats: null, buoyAt: 0, dbg: null, lastGood: {} };
+const LASTGOOD_TTL = 12 * 60 * 60 * 1000; // remember a channel's last real reading for 12h
 const TOKEN_TTL = 40 * 60 * 1000; // reuse the auth token for 40 min
 const BUOY_TTL = 8 * 60 * 1000; // re-pull buoy history at most every 8 min
 
@@ -115,6 +116,21 @@ exports.handler = async () => {
           headers: { Authorization: "Bearer " + token },
         });
         const arr = await sumRes.json();
+        // The vendor docs say the SlotId for /history/v2 comes from GET /slots (NOT from
+        // slotSummaries). Pull it, so we can try the correct id.
+        let slots = null;
+        try {
+          const slotRes = await fetch("https://algae-device.herokuapp.com/slots", {
+            headers: { Authorization: "Bearer " + token },
+          });
+          const sj = await slotRes.json();
+          slots = Array.isArray(sj) ? sj : (sj && Array.isArray(sj.slots) ? sj.slots : null);
+          out.buoySlotsDebug = {
+            status: slotRes.status,
+            count: slots ? slots.length : null,
+            sample: slots ? slots.slice(0, 3).map((s) => ({ _id: s._id, id: s.id, slotId: s.slotId, name: s.name, keys: Object.keys(s).slice(0, 16) })) : (sj && typeof sj === "object" ? Object.keys(sj).slice(0, 10) : null),
+          };
+        } catch (e) { out.buoySlotsError = String(e); }
         // Pick the Elkhart Lake buoy: AQUA_SLOT override, else nearest to Elkhart coords.
         const ELK_LAT = 43.82, ELK_LON = -88.03, target = process.env.AQUA_SLOT;
         let pick = null, best = Infinity;
@@ -146,9 +162,9 @@ exports.handler = async () => {
           let histInfo = null;
           // Their history endpoint sometimes answers 200 with an empty array. Retry with
           // progressively shorter windows before giving up.
-          const pullHist = async (days) => {
+          const pullHist = async (id, days) => {
             const now = Date.now();
-            const r = await fetch(`https://algae-device.herokuapp.com/devices/${pick._id}/history/v2`, {
+            const r = await fetch(`https://algae-device.herokuapp.com/devices/${id}/history/v2`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
               body: JSON.stringify({
@@ -157,16 +173,30 @@ exports.handler = async () => {
               }),
             });
             let j = null;
-            try { j = await r.json(); } catch (e2) { return { status: r.status, arr: null, days }; }
-            return { status: r.status, arr: Array.isArray(j) ? j : null, days, keys: !Array.isArray(j) && j && typeof j === "object" ? Object.keys(j).slice(0, 8) : undefined };
+            try { j = await r.json(); } catch (e2) { return { status: r.status, arr: null, id, days }; }
+            return { status: r.status, arr: Array.isArray(j) ? j : null, id, days, keys: !Array.isArray(j) && j && typeof j === "object" ? Object.keys(j).slice(0, 8) : undefined };
           };
+          // Candidate ids: the one from GET /slots (what the docs say to use) first, then the
+          // slotSummaries _id we were using before.
+          const nm = (pick.name || "").trim();
+          let slotMatch = null;
+          if (Array.isArray(slots)) {
+            slotMatch = slots.find((s) => ((s.name || "").trim() === nm)) || slots.find((s) => s._id === pick._id) || null;
+          }
+          const ids = [];
+          if (slotMatch) [slotMatch._id, slotMatch.id, slotMatch.slotId].forEach((x) => { if (x && !ids.includes(x)) ids.push(x); });
+          if (pick._id && !ids.includes(pick._id)) ids.push(pick._id);
           try {
             let hist = null;
-            for (const d of [3, 1, 0.5]) {
-              const res = await pullHist(d);
-              histInfo = { status: res.status, days: res.days, len: res.arr ? res.arr.length : null, keys: res.keys };
-              if (res.arr && res.arr.length) { hist = res.arr; break; }
+            const tried = [];
+            outer: for (const id of ids) {
+              for (const d of [3, 1]) {
+                const res = await pullHist(id, d);
+                tried.push({ id, days: d, status: res.status, len: res.arr ? res.arr.length : null });
+                if (res.arr && res.arr.length) { hist = res.arr; break outer; }
+              }
             }
+            histInfo = { tried, matchedSlot: !!slotMatch };
             (hist || []).forEach((r) => {
               const t = Date.parse(r.handshakeTime) || 0, x = r.val;
               seen[r.name] = 1;
@@ -180,10 +210,17 @@ exports.handler = async () => {
           // If history came back empty, don't blank the tiles: fall back to the single latest
           // packet from slotSummaries, run through the same sanity filter.
           if (!Object.keys(seen).length) out.buoyHistDebug = histInfo || "no response";
+          // Value priority: (1) newest good reading from history, (2) the latest slotSummaries
+          // packet if it passes the sanity filter, (3) the last real reading we saw within 12h.
+          // The buoy's summary packet flips intermittently between real values and zeros, so
+          // without (3) a tile would vanish every time a zero packet lands.
+          CACHE.lastGood = CACHE.lastGood || {};
           const g = (n) => {
-            if (good[n]) return good[n].v;
-            const x = sv[n], f = OK[n]; // fall back to the latest slotSummaries packet
-            return x != null && (!f || f(x)) ? x : null;
+            if (good[n]) { CACHE.lastGood[n] = { v: good[n].v, t: nowMs }; return good[n].v; }
+            const x = sv[n], f = OK[n];
+            if (x != null && (!f || f(x))) { CACHE.lastGood[n] = { v: x, t: nowMs }; return x; }
+            const lg = CACHE.lastGood[n];
+            return lg && nowMs - lg.t < LASTGOOD_TTL ? lg.v : null;
           };
           const gt = (n) => (good[n] ? Math.floor(good[n].t / 1000) : null);
           const lightKey = LIGHTS.find((n) => seen[n]);
