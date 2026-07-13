@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Elkhart Lake Water Quality Data</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJnIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNWZkMGVmIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMWQ3ZmEzIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHBhdGggZD0iTTE2IDIuMmMwIDAgOS44IDEwLjQgOS44IDE2LjVBOS44IDkuOCAwIDAgMSA2LjIgMTguN0M2LjIgMTIuNiAxNiAyLjIgMTYgMi4yeiIgZmlsbD0idXJsKCNnKSIvPjxwYXRoIGQ9Ik0xMS45IDE5LjJhNC40IDQuNCAwIDAgMCAzLjMgMy44IiBzdHJva2U9IiNkNmYzZmYiIHN0cm9rZS13aWR0aD0iMS43IiBzdHJva2UtbGluZWNhcD0icm91bmQiIGZpbGw9Im5vbmUiIG9wYWNpdHk9Ii45Ii8+PC9zdmc+Cg==">
+<meta name="theme-color" content="#1d7fa3">
+<meta name="description" content="Live water quality data for Elkhart Lake, Wisconsin: real-time buoy readings, weather, water level, and years of citizen monitoring.">
+<meta property="og:title" content="Elkhart Lake Water Quality Data">
+<meta property="og:description" content="Live readings from the lake: water temperature, clarity, algae, weather, and water level.">
+<meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -1561,9 +1567,11 @@ function buoyLive(){
   wrap.style.display=haveAny?'':'none'; if(!haveAny)return;
   const get=(m)=>{ if(m.src==='buoy')return BUOY?BUOY[m.k]:null; return (L&&L._live)?L[m.k]:null; };
   const grid=document.getElementById('buoyLiveGrid');
-  grid.innerHTML=BUOY_METRICS.map(m=>{
+  // Only show a tile once its sensor is actually reporting. (Air temperature and solar light come
+  // only from the buoy's history feed; they appear automatically when that feed returns data.)
+  grid.innerHTML=BUOY_METRICS.filter(m=>get(m)!=null).map(m=>{
     const v=get(m);
-    const disp=(v==null)?'<small>waiting</small>':(Number(v).toFixed(m.dec)+'<small>'+m.unit+'</small>');
+    const disp=Number(v).toFixed(m.dec)+'<small>'+m.unit+'</small>';
     const st=(m.statKey&&BUOYSTATS)?BUOYSTATS[m.statKey]:null;
     let sc='';
     if(v!=null&&m.scale==='turb')sc=turbScale(v);
