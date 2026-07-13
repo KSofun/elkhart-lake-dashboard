@@ -13,7 +13,7 @@ const LASTGOOD_TTL = 12 * 60 * 60 * 1000; // remember a channel's last real read
 const TOKEN_TTL = 40 * 60 * 1000; // reuse the auth token for 40 min
 // The buoy's summary packet flips between real optical values and zeros. Poll it often enough to
 // catch the good packets (each real reading is remembered by CACHE.lastGood below).
-const BUOY_TTL = 2 * 60 * 1000;
+const BUOY_TTL = 60 * 1000;
 
 exports.handler = async (event) => {
   const out = { updated: Math.floor(Date.now() / 1000) };

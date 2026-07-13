@@ -1637,8 +1637,11 @@ async function refreshLive(){
     if(d.weather&&d.weather.airTemp!=null){Object.assign(WX.meta.latest,d.weather);WX.meta.latest._live=true;wxLatest();}
     if(d.level&&d.level.level!=null){LV.meta.latest.level=d.level.level;LV.meta.latest.epoch=d.level.epoch;LV.meta.latest.dateStr=fmtT(d.level.epoch);LV.meta.latest._live=true;lvLatest();}
     if(d.waterTemp&&d.waterTemp.tempF!=null){WT.tempF=d.waterTemp.tempF;WT.epoch=d.waterTemp.epoch;wtRender();const ov=document.getElementById('ovWtStat');if(ov)ov.innerHTML='Right now the water is <b>'+WT.tempF.toFixed(1)+'°F</b>.';}
-    if(d.buoy){BUOY=d.buoy;}
-    if(d.buoyStats){BUOYSTATS=d.buoyStats;}
+    // The vendor's feed intermittently sends zero packets on the optical channels, which the
+    // function filters out as artifacts. Merge in only the non-null values so a real reading we
+    // already received stays on screen instead of vanishing on the next bad packet.
+    if(d.buoy){BUOY=BUOY||{};Object.keys(d.buoy).forEach(k=>{if(d.buoy[k]!=null)BUOY[k]=d.buoy[k];});}
+    if(d.buoyStats&&Object.keys(d.buoyStats).length){BUOYSTATS=d.buoyStats;}
     renderLiveFold();buoyLive();
   }catch(e){}
 }
