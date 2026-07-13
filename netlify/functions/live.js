@@ -11,10 +11,14 @@
 let CACHE = { token: null, tokenAt: 0, buoy: null, buoyStats: null, buoyAt: 0, dbg: null, lastGood: {} };
 const LASTGOOD_TTL = 12 * 60 * 60 * 1000; // remember a channel's last real reading for 12h
 const TOKEN_TTL = 40 * 60 * 1000; // reuse the auth token for 40 min
-const BUOY_TTL = 8 * 60 * 1000; // re-pull buoy history at most every 8 min
+// The buoy's summary packet flips between real optical values and zeros. Poll it often enough to
+// catch the good packets (each real reading is remembered by CACHE.lastGood below).
+const BUOY_TTL = 2 * 60 * 1000;
 
-exports.handler = async () => {
+exports.handler = async (event) => {
   const out = { updated: Math.floor(Date.now() / 1000) };
+  // ?fresh=1 bypasses the buoy cache (for debugging the vendor API)
+  const FRESH = !!(event && event.queryStringParameters && event.queryStringParameters.fresh);
 
   // ---------- Tempest weather station ----------
   // Use the DEVICE observations endpoint (real-time). The station-level endpoint
@@ -86,7 +90,7 @@ exports.handler = async () => {
   try {
     const email = process.env.AQUA_EMAIL, password = process.env.AQUA_PASSWORD;
     const nowMs = Date.now();
-    if (email && password && CACHE.buoy && nowMs - CACHE.buoyAt < BUOY_TTL) {
+    if (email && password && !FRESH && CACHE.buoy && nowMs - CACHE.buoyAt < BUOY_TTL) {
       // still fresh from a recent invocation - don't touch their API at all
       out.buoy = CACHE.buoy;
       out.buoyStats = CACHE.buoyStats || {};
@@ -146,6 +150,7 @@ exports.handler = async () => {
           const n2 = (x) => (x == null ? null : Math.round(x * 100) / 100);
           const sv = {};
           (pick.values || []).forEach((x) => { sv[x.name] = x.value; });
+          if (FRESH) { out.buoyRawSummary = sv; out.buoyLastGood = CACHE.lastGood; }
           // The raw feed has spikes (0s and wild highs) - the vendor portal has a
           // "spike removal" toggle for exactly this. Accept only readings inside a sane
           // range per channel, then take the most recent good one.
