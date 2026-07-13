@@ -135,16 +135,23 @@ exports.handler = async (event) => {
             sample: slots ? slots.slice(0, 3).map((s) => ({ _id: s._id, id: s.id, slotId: s.slotId, name: s.name, keys: Object.keys(s).slice(0, 16) })) : (sj && typeof sj === "object" ? Object.keys(sj).slice(0, 10) : null),
           };
         } catch (e) { out.buoySlotsError = String(e); }
-        // Pick the Elkhart Lake buoy: AQUA_SLOT override, else nearest to Elkhart coords.
+        // Route to the ELKHART buoy only. The account also carries an unrelated buoy in Canada,
+        // so pin ours by serial number (AQUA_BUOY, default B404-321). Fall back to an explicit
+        // slot id, then to nearest-to-Elkhart, so this can never silently pick the wrong one.
+        const list = Array.isArray(arr) ? arr : [];
+        const WANT = (process.env.AQUA_BUOY || "B404-321").trim().toLowerCase();
         const ELK_LAT = 43.82, ELK_LON = -88.03, target = process.env.AQUA_SLOT;
-        let pick = null, best = Infinity;
-        (Array.isArray(arr) ? arr : []).forEach((t) => {
-          if (target && t._id === target) { pick = t; best = -1; return; }
-          if (best === -1) return;
-          const dLat = (t.gpsLat || 0) - ELK_LAT, dLon = (t.gpsLong || 0) - ELK_LON;
-          const d = dLat * dLat + dLon * dLon;
-          if (d < best) { best = d; pick = t; }
-        });
+        let pick = list.find((t) => target && t._id === target) || null;
+        if (!pick) pick = list.find((t) => (t.name || "").trim().toLowerCase() === WANT) || null;
+        if (!pick) pick = list.find((t) => (t.name || "").toLowerCase().includes(WANT)) || null;
+        if (!pick) {
+          let best = Infinity;
+          list.forEach((t) => {
+            const dLat = (t.gpsLat || 0) - ELK_LAT, dLon = (t.gpsLong || 0) - ELK_LON;
+            const d = dLat * dLat + dLon * dLon;
+            if (d < best) { best = d; pick = t; }
+          });
+        }
         if (pick) {
           const C2F = (c) => (c == null ? null : Math.round((c * 9 / 5 + 32) * 10) / 10);
           const n2 = (x) => (x == null ? null : Math.round(x * 100) / 100);
@@ -167,19 +174,26 @@ exports.handler = async (event) => {
           let histInfo = null;
           // Their history endpoint sometimes answers 200 with an empty array. Retry with
           // progressively shorter windows before giving up.
-          const pullHist = async (id, days) => {
+          // Their docs' examples use whole-hour timestamps ("2024-11-05T07:00:00.000Z"), so try
+          // that shape as well as a plain ISO now-stamp.
+          const iso = (ms, roundHour) => {
+            const d = new Date(ms);
+            if (roundHour) d.setUTCMinutes(0, 0, 0);
+            return d.toISOString();
+          };
+          const pullHist = async (id, days, roundHour) => {
             const now = Date.now();
             const r = await fetch(`https://algae-device.herokuapp.com/devices/${id}/history/v2`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
               body: JSON.stringify({
-                startDate: new Date(now - days * 86400 * 1000).toISOString(),
-                endDate: new Date(now).toISOString(),
+                startDate: iso(now - days * 86400 * 1000, roundHour),
+                endDate: iso(now, roundHour),
               }),
             });
             let j = null;
             try { j = await r.json(); } catch (e2) { return { status: r.status, arr: null, id, days }; }
-            return { status: r.status, arr: Array.isArray(j) ? j : null, id, days, keys: !Array.isArray(j) && j && typeof j === "object" ? Object.keys(j).slice(0, 8) : undefined };
+            return { status: r.status, arr: Array.isArray(j) ? j : null, id, days, roundHour, keys: !Array.isArray(j) && j && typeof j === "object" ? Object.keys(j).slice(0, 8) : undefined };
           };
           // We don't know which id /history/v2 wants, so harvest EVERY Mongo-style id from the
           // slot + summary objects and try each one. Whichever returns rows is the right id.
@@ -203,9 +217,27 @@ exports.handler = async (event) => {
             let hist = null;
             const tried = [];
             outer: for (const id of ids) {
-              const res = await pullHist(id, 2);
-              tried.push({ id, status: res.status, len: res.arr ? res.arr.length : null });
-              if (res.arr && res.arr.length) { hist = res.arr; break outer; }
+              for (const rh of [false, true]) {
+                const res = await pullHist(id, 2, rh);
+                tried.push({ id, roundHour: rh, status: res.status, len: res.arr ? res.arr.length : null });
+                if (res.arr && res.arr.length) { hist = res.arr; break outer; }
+              }
+            }
+            // DIAGNOSTIC: does history work for the OTHER buoy on this account? If it returns rows
+            // there but not here, the difference is the per-device timeSeriesEnabled/subscription.
+            if (FRESH && Array.isArray(slots)) {
+              out.buoyHistProbe = [];
+              for (const s of slots) {
+                const p = await pullHist(s._id, 2, false);
+                out.buoyHistProbe.push({
+                  name: (s.name || "").trim(),
+                  timeSeriesEnabled: s.timeSeriesEnabled,
+                  subscription: s.subscription_name,
+                  configured: s.configured,
+                  histStatus: p.status,
+                  histRows: p.arr ? p.arr.length : null,
+                });
+              }
             }
             // last resort: the pre-v2 endpoint, in case /v2 is not what this account uses
             if (!hist && ids.length) {
