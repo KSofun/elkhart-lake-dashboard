@@ -110,9 +110,19 @@ exports.handler = async () => {
           const n2 = (x) => (x == null ? null : Math.round(x * 100) / 100);
           const sv = {};
           (pick.values || []).forEach((x) => { sv[x.name] = x.value; });
-          // slotSummaries gives one latest packet (optical channels are often 0 there).
-          // Pull recent HISTORY and take the latest real (non-zero) value per channel.
-          const latest = {}, latestNZ = {};
+          // The raw feed has spikes (0s and wild highs) - the vendor portal has a
+          // "spike removal" toggle for exactly this. Accept only readings inside a sane
+          // range per channel, then take the most recent good one.
+          const LIGHTS = ["light", "solar", "solarLight", "par", "solarRadiation"];
+          const OK = {
+            waterTemp: (x) => x > -5 && x < 45 && x !== 0,
+            airTemp: (x) => x > -50 && x < 60 && x !== 0,
+            turbidity: (x) => x > 0 && x < 500,
+            chlorA: (x) => x > 0 && x < 5000,
+            phycocyanin: (x) => x > 0 && x < 5000,
+          };
+          LIGHTS.forEach((n) => { OK[n] = (x) => x >= 0 && x < 10000; });
+          const seen = {}, good = {};
           try {
             const now = Date.now();
             const histRes = await fetch(`https://algae-device.herokuapp.com/devices/${pick._id}/history/v2`, {
@@ -125,24 +135,26 @@ exports.handler = async () => {
             });
             const hist = await histRes.json();
             (Array.isArray(hist) ? hist : []).forEach((r) => {
-              const t = Date.parse(r.handshakeTime) || 0;
-              if (!latest[r.name] || t > latest[r.name].t) latest[r.name] = { v: r.val, t };
-              if (r.val != null && r.val !== 0 && (!latestNZ[r.name] || t > latestNZ[r.name].t)) latestNZ[r.name] = { v: r.val, t };
+              const t = Date.parse(r.handshakeTime) || 0, x = r.val;
+              seen[r.name] = 1;
+              const f = OK[r.name];
+              if (x != null && (!f || f(x)) && (!good[r.name] || t > good[r.name].t)) good[r.name] = { v: x, t };
             });
           } catch (e) { out.buoyHistError = String(e); }
-          const val = (name, nz) => {
-            const a = nz ? (latestNZ[name] || latest[name]) : (latest[name] || latestNZ[name]);
-            return a ? a.v : (sv[name] != null ? sv[name] : null);
-          };
-          const tOf = (name) => { const a = latest[name] || latestNZ[name]; return a ? Math.floor(a.t / 1000) : null; };
+          const g = (n) => (good[n] ? good[n].v : null);
+          const gt = (n) => (good[n] ? Math.floor(good[n].t / 1000) : null);
+          const lightKey = LIGHTS.find((n) => seen[n]);
           out.buoy = {
-            epoch: tOf("waterTemp") || pick.device_last_publish || sv.utcTime || out.updated,
+            epoch: gt("waterTemp") || pick.device_last_publish || sv.utcTime || out.updated,
             name: (pick.name || "").trim(),
-            waterTempF: C2F(val("waterTemp", false)),
-            turbidity: n2(val("turbidity", true)),
-            chlorA: n2(val("chlorA", true)),
-            phycocyanin: n2(val("phycocyanin", true)),
+            waterTempF: C2F(g("waterTemp")),
+            airTempF: C2F(g("airTemp")),
+            turbidity: n2(g("turbidity")),
+            chlorA: n2(g("chlorA")),
+            phycocyanin: n2(g("phycocyanin")),
+            light: lightKey ? n2(g(lightKey)) : null,
           };
+          out.buoyChannels = Object.keys(seen); // temp: confirms the solar-light channel name
         } else {
           out.buoyDebug = { step: "select", message: "no tracker matched", count: Array.isArray(arr) ? arr.length : 0 };
         }
