@@ -122,26 +122,46 @@ exports.handler = async () => {
             phycocyanin: (x) => x > 0 && x < 5000,
           };
           LIGHTS.forEach((n) => { OK[n] = (x) => x >= 0 && x < 10000; });
-          const seen = {}, good = {};
+          const seen = {}, good = {}, series = {};
+          let histInfo = null;
           try {
             const now = Date.now();
             const histRes = await fetch(`https://algae-device.herokuapp.com/devices/${pick._id}/history/v2`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
               body: JSON.stringify({
-                startDate: new Date(now - 4 * 86400 * 1000).toISOString(),
+                startDate: new Date(now - 7 * 86400 * 1000).toISOString(),
                 endDate: new Date(now).toISOString(),
               }),
             });
-            const hist = await histRes.json();
-            (Array.isArray(hist) ? hist : []).forEach((r) => {
-              const t = Date.parse(r.handshakeTime) || 0, x = r.val;
-              seen[r.name] = 1;
-              const f = OK[r.name];
-              if (x != null && (!f || f(x)) && (!good[r.name] || t > good[r.name].t)) good[r.name] = { v: x, t };
-            });
+            let hist = null;
+            try { hist = await histRes.json(); } catch (e2) { histInfo = { status: histRes.status, note: "response was not JSON" }; }
+            if (hist != null) {
+              histInfo = {
+                status: histRes.status,
+                isArray: Array.isArray(hist),
+                len: Array.isArray(hist) ? hist.length : null,
+                keys: !Array.isArray(hist) && hist && typeof hist === "object" ? Object.keys(hist).slice(0, 8) : undefined,
+              };
+              (Array.isArray(hist) ? hist : []).forEach((r) => {
+                const t = Date.parse(r.handshakeTime) || 0, x = r.val;
+                seen[r.name] = 1;
+                const f = OK[r.name];
+                if (x != null && (!f || f(x))) {
+                  (series[r.name] = series[r.name] || []).push({ v: x, t });
+                  if (!good[r.name] || t > good[r.name].t) good[r.name] = { v: x, t };
+                }
+              });
+            }
           } catch (e) { out.buoyHistError = String(e); }
-          const g = (n) => (good[n] ? good[n].v : null);
+          // If history came back empty, don't blank the tiles: fall back to the single latest
+          // packet from slotSummaries, run through the same sanity filter.
+          if (!Object.keys(seen).length) out.buoyHistDebug = histInfo || "no response";
+          const g = (n) => {
+            if (good[n]) return good[n].v;
+            const x = sv[n], f = OK[n]; // fall back to the latest slotSummaries packet
+            return x != null && (!f || f(x)) ? x : null;
+          };
           const gt = (n) => (good[n] ? Math.floor(good[n].t / 1000) : null);
           const lightKey = LIGHTS.find((n) => seen[n]);
           out.buoy = {
@@ -154,6 +174,43 @@ exports.handler = async () => {
             phycocyanin: n2(g("phycocyanin")),
             light: lightKey ? n2(g(lightKey)) : null,
           };
+
+          // Where does "now" sit within this buoy's own recent readings? (USGS WaterWatch pattern:
+          // report position vs. the site's own history rather than invent absolute good/bad bands,
+          // which is not defensible for relative fluorescence units.)
+          const statsFor = (n, conv) => {
+            const raw = series[n] || [];
+            if (raw.length < 4) return null;
+            const c = conv || ((x) => x);
+            const vals = raw.map((o) => c(o.v)).sort((a, b) => a - b);
+            const q = (p) => vals[Math.min(vals.length - 1, Math.max(0, Math.round((vals.length - 1) * p)))];
+            const cur = good[n] ? c(good[n].v) : null;
+            const below = cur == null ? null : vals.filter((v) => v < cur).length;
+            const cutoff = Date.now() - 24 * 3600 * 1000;
+            const avg = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
+            const r24 = avg(raw.filter((o) => o.t > cutoff).map((o) => c(o.v)));
+            const rPrev = avg(raw.filter((o) => o.t <= cutoff).map((o) => c(o.v)));
+            let trend = "steady";
+            if (r24 != null && rPrev != null && Math.abs(rPrev) > 1e-9) {
+              const d = (r24 - rPrev) / Math.abs(rPrev);
+              if (d > 0.15) trend = "rising";
+              else if (d < -0.15) trend = "falling";
+            }
+            return {
+              n: vals.length,
+              min: Math.round(q(0.05) * 100) / 100,
+              med: Math.round(q(0.5) * 100) / 100,
+              max: Math.round(q(0.95) * 100) / 100,
+              pct: below == null ? null : Math.round((below / vals.length) * 100),
+              trend,
+            };
+          };
+          const C2Fv = (c) => (c * 9) / 5 + 32;
+          out.buoyStats = {};
+          [["waterTemp", C2Fv], ["turbidity", null], ["chlorA", null], ["phycocyanin", null]].forEach(([n, cv]) => {
+            const s = statsFor(n, cv);
+            if (s) out.buoyStats[n] = s;
+          });
           out.buoyChannels = Object.keys(seen); // temp: confirms the solar-light channel name
         } else {
           out.buoyDebug = { step: "select", message: "no tracker matched", count: Array.isArray(arr) ? arr.length : 0 };
