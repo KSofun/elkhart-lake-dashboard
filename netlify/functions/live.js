@@ -189,19 +189,16 @@ exports.handler = async (event) => {
             slotMatch = slots.find((s) => ((s.name || "").trim() === nm)) || slots.find((s) => s._id === pick._id) || null;
           }
           if (FRESH && slotMatch) out.buoySlotFull = slotMatch;
+          // /devices/{id}/history/v2 wants the DEVICE id, which lives in moments[].device_id -
+          // NOT the slot _id. Try the device id first, then fall back to the slot id.
           const ids = [];
           const isId = (v) => typeof v === "string" && /^[a-f0-9]{24}$/i.test(v);
-          const harvest = (obj, depth) => {
-            if (!obj || typeof obj !== "object" || depth > 2 || ids.length >= 6) return;
-            Object.entries(obj).forEach(([k, v]) => {
-              if (/account|viewer/i.test(k)) return; // not device ids
-              if (isId(v)) { if (!ids.includes(v)) ids.push(v); }
-              else if (v && typeof v === "object" && !Array.isArray(v)) harvest(v, depth + 1);
-            });
-          };
-          if (slotMatch && slotMatch._id) ids.push(slotMatch._id);
-          harvest(slotMatch, 0);
-          harvest(pick, 0);
+          const addId = (v) => { if (isId(v) && !ids.includes(v)) ids.push(v); };
+          const moments = (slotMatch && Array.isArray(slotMatch.moments) ? slotMatch.moments : [])
+            .concat(pick && Array.isArray(pick.moments) ? pick.moments : []);
+          moments.forEach((m) => addId(m && m.device_id));
+          if (slotMatch) addId(slotMatch._id);
+          addId(pick._id);
           try {
             let hist = null;
             const tried = [];
