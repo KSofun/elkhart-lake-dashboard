@@ -9,7 +9,36 @@
 // Netlify reuses warm containers, so cache the auth token and the buoy result at module scope
 // instead of re-authenticating and re-pulling history on every single request.
 let CACHE = { token: null, tokenAt: 0, buoy: null, buoyStats: null, buoyAt: 0, dbg: null, lastGood: {} };
-const LASTGOOD_TTL = 12 * 60 * 60 * 1000; // remember a channel's last real reading for 12h
+const LASTGOOD_TTL = 24 * 60 * 60 * 1000; // remember a channel's last real reading for 24h
+
+// The buoy sends 0 on the optical channels in most packets and a real value only occasionally.
+// (The vendor's own portal survives this by exponentially smoothing - see trendlineProperties.)
+// Netlify wipes function memory between invocations, so persist the last real reading in a blob
+// store. Degrades silently to in-memory if blobs are unavailable.
+let STORE = undefined;
+async function blobStore() {
+  if (STORE !== undefined) return STORE;
+  try {
+    const { getStore } = await import("@netlify/blobs");
+    STORE = getStore("elkhart-buoy");
+  } catch (e) {
+    STORE = null;
+  }
+  return STORE;
+}
+async function loadLastGood() {
+  try {
+    const s = await blobStore();
+    if (!s) return {};
+    return (await s.get("lastGood", { type: "json" })) || {};
+  } catch (e) { return {}; }
+}
+async function saveLastGood(obj) {
+  try {
+    const s = await blobStore();
+    if (s) await s.setJSON("lastGood", obj);
+  } catch (e) { /* non-fatal */ }
+}
 const TOKEN_TTL = 40 * 60 * 1000; // reuse the auth token for 40 min
 // The buoy's summary packet flips between real optical values and zeros. Poll it often enough to
 // catch the good packets (each real reading is remembered by CACHE.lastGood below).
@@ -271,13 +300,20 @@ exports.handler = async (event) => {
           // packet if it passes the sanity filter, (3) the last real reading we saw within 12h.
           // The buoy's summary packet flips intermittently between real values and zeros, so
           // without (3) a tile would vanish every time a zero packet lands.
-          CACHE.lastGood = CACHE.lastGood || {};
+          // merge anything we persisted on a previous invocation
+          const persisted = await loadLastGood();
+          CACHE.lastGood = Object.assign({}, persisted, CACHE.lastGood || {});
+          let dirty = false;
           const g = (n) => {
-            if (good[n]) { CACHE.lastGood[n] = { v: good[n].v, t: nowMs }; return good[n].v; }
+            if (good[n]) { CACHE.lastGood[n] = { v: good[n].v, t: nowMs }; dirty = true; return good[n].v; }
             const x = sv[n], f = OK[n];
-            if (x != null && (!f || f(x))) { CACHE.lastGood[n] = { v: x, t: nowMs }; return x; }
+            if (x != null && (!f || f(x))) { CACHE.lastGood[n] = { v: x, t: nowMs }; dirty = true; return x; }
+            // Prefer the most recent REAL measurement (the optical sensors only read
+            // periodically; between reads the buoy transmits 0). If we have never seen a real
+            // one, fall through to the raw value so the tile shows 0 rather than vanishing.
             const lg = CACHE.lastGood[n];
-            return lg && nowMs - lg.t < LASTGOOD_TTL ? lg.v : null;
+            if (lg && nowMs - lg.t < LASTGOOD_TTL) return lg.v;
+            return x != null ? x : null;
           };
           const gt = (n) => (good[n] ? Math.floor(good[n].t / 1000) : null);
           const lightKey = LIGHTS.find((n) => seen[n]);
@@ -329,6 +365,14 @@ exports.handler = async (event) => {
             if (s) out.buoyStats[n] = s;
           });
           out.buoyChannels = Object.keys(seen);
+          // Persist any newly-seen real readings so they survive a cold start.
+          if (dirty) await saveLastGood(CACHE.lastGood);
+          // Tell the page how fresh each optical reading actually is.
+          out.buoyAsOf = {};
+          ["turbidity", "chlorA", "phycocyanin"].forEach((n) => {
+            const lg = CACHE.lastGood[n];
+            if (lg) out.buoyAsOf[n] = Math.floor(lg.t / 1000);
+          });
           // Cache so subsequent invocations reuse this instead of hammering their API.
           CACHE.buoy = out.buoy;
           CACHE.buoyStats = out.buoyStats;

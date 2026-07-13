@@ -1,0 +1,9 @@
+{
+  "name": "elkhart-lake-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Netlify functions for the Elkhart Lake water quality dashboard",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}
