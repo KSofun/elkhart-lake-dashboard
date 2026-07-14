@@ -828,7 +828,12 @@ const qnt = (a,p)=>{ a=a.filter(x=>x!=null).slice().sort((x,y)=>x-y); if(!a.leng
 function doy(d){const dt=new Date(d+'T00:00:00Z');return (Date.UTC(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate())-Date.UTC(dt.getUTCFullYear(),0,1))/864e5+1;}
 function doyE(t){const dt=new Date(t*1000);return (dt.getTime()-Date.UTC(dt.getUTCFullYear(),0,1))/864e5+1;}
 const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+// lbl() maps a DAY-OF-YEAR (1..365) to a month/day label. It is only valid for the buoy charts,
+// which deliberately overlay multiple seasons on a shared day-of-year axis. Anything plotting a
+// continuous multi-year record (weather, level) must use real timestamps + fmtMon/fmtDay instead.
 function lbl(x){const dt=new Date(Date.UTC(2025,0,Math.round(x)));return MON[dt.getUTCMonth()]+" "+dt.getUTCDate();}
+const fmtMon=ms=>{try{return new Date(ms).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',year:'2-digit'});}catch(e){return '';}};
+const fmtDay=d=>{try{return new Date(d+'T00:00:00Z').toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric'});}catch(e){return d;}};
 function fmt(v,r){return v==null?"-":Number(v).toFixed(r);}
 const rnd={waterTemp:1,turbidity:2,chlorA:1,phycocyanin:1,waterLight:0};
 
@@ -1161,10 +1166,10 @@ function wxLatest(){const L=WX.meta.latest,host=document.getElementById('wxLates
 function wxTiles(){const host=document.getElementById('wxTiles');host.innerHTML="";
   WX.coreTiles.forEach(v=>{const c=wcol(v),V=WV[v],s=wstat(v),el=document.createElement('div');el.className="tile";el.style.setProperty('--c',c);
     let val,sub,badge='';
-    if(v==='airTemp'){val=`${s.mean.toFixed(0)}<small> °F</small>`;sub=`ranged ${s.min.toFixed(0)} to ${s.max.toFixed(0)}°F across the season`;badge='<span class="badge b-neutral">Summer to fall</span>';}
-    else if(v==='rain'){const big=Math.max(...wser('rain').map(o=>o.med));val=`${s.sum.toFixed(1)}<small> in</small>`;sub=`season total · biggest day ${big.toFixed(2)} in`;badge='<span class="badge b-neutral">96 days</span>';}
+    if(v==='airTemp'){val=`${s.mean.toFixed(0)}<small> °F</small>`;sub=`ranged ${s.min.toFixed(0)} to ${s.max.toFixed(0)}°F across the whole record`;badge=`<span class="badge b-neutral">${WX.facts.freeze_days} days below freezing</span>`;}
+    else if(v==='rain'){const big=Math.max(...wser('rain').map(o=>o.med));val=`${s.sum.toFixed(1)}<small> in</small>`;sub=`total since install · biggest day ${big.toFixed(2)} in`;badge=`<span class="badge b-neutral">${WX.meta.n_days} days</span>`;}
     else if(v==='wind'){val=`${s.mean.toFixed(0)}<small> mph</small>`;sub=`typical wind · gusted to ${s.max.toFixed(0)} mph`;badge='<span class="badge b-neutral">Mostly calm</span>';}
-    else if(v==='uv'){const st=wstatus('uv',s.peak);val=`${s.peak.toFixed(0)}`;sub='highest UV index this season';badge=st?`<span class="badge ${toneClass[st.tone]}">${st.label} peak</span>`:'';}
+    else if(v==='uv'){const st=wstatus('uv',s.peak);val=`${s.peak.toFixed(0)}`;sub='highest UV index on record';badge=st?`<span class="badge ${toneClass[st.tone]}">${st.label} peak</span>`:'';}
     else{val=`${(s.mean??s.peak).toFixed(0)}<small> ${V.unit}</small>`;sub='';}
     el.innerHTML=`<div class="ttop">${wico(v)}<span class="tl">${V.label}</span></div><div class="val">${val}</div><div class="rng">${sub}</div>${badge}`;
     host.appendChild(el);});
@@ -1206,31 +1211,34 @@ function wxRender(){wxChips();wxInfo();if(wchart)wchart.destroy();
   const single=wstate.view==='single';
   document.getElementById('wxToggles').style.display=single?'flex':'none';
   const ds=[];let yTitle='';let bandsOpt=null;let type='line';
+  // X is a REAL timestamp. The weather record is one continuous run from install to today and
+  // spans two calendar years, so a day-of-year axis would fold 2026 back on top of 2025.
+  const wx=o=>Date.parse(o.d);
   if(single){const v=wstate.variable,c=wcol(v),V=WV[v];yTitle=`${V.label}${V.unit?' ('+V.unit+')':''}`;const D=wser(v);
     if(V.kind==='sum'){type='bar';
-      ds.push({label:V.label,data:D.map(o=>({x:doy(o.d),y:o.med,d:o.d})),backgroundColor:c,borderColor:c,borderWidth:0,maxBarThickness:9,categoryPercentage:1,barPercentage:0.9});
+      ds.push({label:V.label,data:D.map(o=>({x:wx(o),y:o.med,d:o.d})),backgroundColor:c,borderColor:c,borderWidth:0,maxBarThickness:6,barThickness:'flex'});
     }else{
       if(V.kind==='band'&&wstate.band){
-        ds.push({label:'_hi',data:D.map(o=>({x:doy(o.d),y:o.hi})),borderWidth:0,pointRadius:0,fill:'+1',backgroundColor:c+'22',order:5});
-        ds.push({label:'_lo',data:D.map(o=>({x:doy(o.d),y:o.lo})),borderWidth:0,pointRadius:0,fill:false,order:5});
+        ds.push({label:'_hi',data:D.map(o=>({x:wx(o),y:o.hi})),borderWidth:0,pointRadius:0,fill:'+1',backgroundColor:c+'22',order:5,spanGaps:false});
+        ds.push({label:'_lo',data:D.map(o=>({x:wx(o),y:o.lo})),borderWidth:0,pointRadius:0,fill:false,order:5,spanGaps:false});
       }
-      ds.push({label:V.label,data:D.map(o=>({x:doy(o.d),y:o.med,d:o.d})),borderColor:c,backgroundColor:c,borderWidth:2.6,tension:.32,pointRadius:0,pointHoverRadius:5,fill:false,order:1});
+      ds.push({label:V.label,data:D.map(o=>({x:wx(o),y:o.med,d:o.d})),borderColor:c,backgroundColor:c,borderWidth:2.6,tension:.32,pointRadius:0,pointHoverRadius:5,fill:false,order:1,spanGaps:false});
       if(V.bands)bandsOpt=V.bands;
-      if(wstate.trend&&D.length>2){const line=D.map(o=>({x:doy(o.d),y:o.med})).filter(p=>p.y!=null);const f=linfit(line);if(f){const xs=line.map(p=>p.x),x0=Math.min(...xs),x1=Math.max(...xs);ds.push({label:'_trend',data:[{x:x0,y:f.m*x0+f.b},{x:x1,y:f.m*x1+f.b}],borderColor:'#102a3c',borderWidth:2,borderDash:[2,4],pointRadius:0,fill:false,order:0});const perWk=f.m*7,dir=perWk>0?'rising':'falling';const out=document.getElementById('wxTrendOut');if(out){out.classList.add('show');out.innerHTML=`<b>Trend:</b> ${V.label.toLowerCase()} is ${dir} about <b>${Math.abs(perWk).toFixed(wrnd[v])} ${V.unit}/week</b> across this window. This dashed line is a statistically generated best fit (least-squares); readings scatter around it, so read it as direction, not a precise prediction.`;}}}
+      if(wstate.trend&&D.length>2){const line=D.map(o=>({x:wx(o),y:o.med})).filter(p=>p.y!=null);const f=linfit(line);if(f){const xs=line.map(p=>p.x),x0=Math.min(...xs),x1=Math.max(...xs);ds.push({label:'_trend',data:[{x:x0,y:f.m*x0+f.b},{x:x1,y:f.m*x1+f.b}],borderColor:'#102a3c',borderWidth:2,borderDash:[2,4],pointRadius:0,fill:false,order:0});const perMo=f.m*2592000000,dir=perMo>0?'rising':'falling';const out=document.getElementById('wxTrendOut');if(out){out.classList.add('show');out.innerHTML=`<b>Trend:</b> ${V.label.toLowerCase()} is ${dir} about <b>${Math.abs(perMo).toFixed(wrnd[v])} ${V.unit}/month</b> across this record. Over a record this long that mostly reflects the swing of the seasons, not a lasting change. This dashed line is a statistically generated best fit (least-squares); readings scatter around it, so read it as direction, not a precise prediction.`;}}}
     }
   }else{yTitle="Relative level (% of each signal's own range)";
     wstate.combine.forEach(v=>{const c=wcol(v),V=WV[v],D=wser(v),m=D.map(o=>o.med).filter(x=>x!=null),mn=Math.min(...m),mx=Math.max(...m),rg=(mx-mn)||1;
-      ds.push({label:V.label,data:D.map(o=>({x:doy(o.d),y:o.med==null?null:(o.med-mn)/rg*100,real:o.med,d:o.d,vn:V.label,un:V.unit,rr:wrnd[v]})),borderColor:c,backgroundColor:c,borderWidth:2.6,tension:.32,pointRadius:0,pointHoverRadius:5,fill:false});});
+      ds.push({label:V.label,data:D.map(o=>({x:wx(o),y:o.med==null?null:(o.med-mn)/rg*100,real:o.med,d:o.d,vn:V.label,un:V.unit,rr:wrnd[v]})),borderColor:c,backgroundColor:c,borderWidth:2.6,tension:.32,pointRadius:0,pointHoverRadius:5,fill:false,spanGaps:false});});
   }
   const noZero={airTemp:1,pressure:1};
   wchart=new Chart(document.getElementById('wxChart'),{type,data:{datasets:ds},options:{
     responsive:true,maintainAspectRatio:false,animation:{duration:450},
     interaction:{mode:'nearest',intersect:false,axis:'x'},
-    scales:{x:{type:'linear',grid:{color:'#eef2f5'},ticks:{maxTicksLimit:8,autoSkip:true,callback:x=>lbl(x),color:'#5d7689',font:{size:12}}},
+    scales:{x:{type:'linear',grid:{color:'#eef2f5'},ticks:{maxTicksLimit:9,autoSkip:true,callback:v=>fmtMon(v),color:'#5d7689',font:{size:12}}},
       y:{grid:{color:'#eef2f5'},ticks:{color:'#5d7689',font:{size:12}},title:{display:true,text:yTitle,color:'#5d7689',font:{size:12,weight:'600'}},beginAtZero:single?!noZero[wstate.variable]:true}},
     plugins:{legend:{display:!single,position:'top',align:'end',labels:{filter:i=>!i.text.startsWith('_'),usePointStyle:true,pointStyleWidth:10,boxHeight:7,color:'#102a3c',font:{size:12.5,weight:'600'}}},
       tooltip:{filter:i=>!(i.dataset.label||'').startsWith('_'),backgroundColor:'#102a3c',padding:11,cornerRadius:9,titleFont:{size:12.5},bodyFont:{size:13},usePointStyle:true,
-        callbacks:{title:items=>lbl(items[0].parsed.x)+' · 2025',label:cx=>{const r=cx.raw;if(!single&&r&&r.real!=null)return ` ${r.vn}: ${fmt(r.real,r.rr)} ${r.un}`;const v=wstate.variable;return ` ${fmt(cx.parsed.y,wrnd[v])} ${WV[v].unit}`;}}},
+        callbacks:{title:items=>{const r=items[0].raw;return r&&r.d?fmtDay(r.d):fmtMon(items[0].parsed.x);},label:cx=>{const r=cx.raw;if(!single&&r&&r.real!=null)return ` ${r.vn}: ${fmt(r.real,r.rr)} ${r.un}`;const v=wstate.variable;return ` ${fmt(cx.parsed.y,wrnd[v])} ${WV[v].unit}`;}}},
       bands:{bands:bandsOpt}},
   },plugins:[bandPlugin]});
 }
@@ -1246,7 +1254,7 @@ function wxCross(){const host=document.getElementById('wxCross');host.innerHTML=
     el.innerHTML=`<div class="ic" style="--ci:rgba(29,127,163,.13);color:#1d7fa3">${ICONS.link}</div><div><h3>${x.title}</h3><p>${x.text}</p></div>`;
     host.appendChild(el);});
 }
-function wxFoot(){const m=WX.meta;document.getElementById('wxFoot').innerHTML=`Weather from a <b>Tempest</b> station (device ${m.device}) at ${m.lat}, ${m.lon}, recorded every minute and shown here as daily values for ${m.first} to ${m.last}. The station had a power and sensor outage from mid-October 2025 through winter, so this view focuses on the reliable summer-to-fall window. The "latest reading" is a snapshot from when this page was built, not yet a live auto-updating feed.`;}
+function wxFoot(){const m=WX.meta;document.getElementById('wxFoot').innerHTML=`Weather from a <b>Tempest</b> station (device ${m.device}) at ${m.lat}, ${m.lon}, recorded every minute and shown here as daily values from ${fmtDay(m.first)} through ${fmtDay(m.last)} (<b>${m.n_days} days</b>). ${m.n_gaps} days are missing, nearly all of them in winter: the station runs on sunlight, and through the short grey days it conserves power and reports less often. Those gaps are left as gaps rather than drawn through. The reading at the top of this tab is <b>live</b>, refreshed every couple of minutes straight from the station.`;}
 
 document.getElementById('wxViewSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;wstate.view=b.dataset.view;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));wxRender();});
 document.getElementById('wxBand').addEventListener('change',e=>{wstate.band=e.target.checked;wxRender();});
@@ -1261,8 +1269,6 @@ Object.assign(ICONS,{
 });
 const LV=DATA.level, LVV=LV.variables.level;
 let lvstate={band:true,trend:false}, lvchart;
-const fmtMon=ms=>{try{return new Date(ms).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',year:'2-digit'});}catch(e){return '';}};
-const fmtDay=d=>{try{return new Date(d+'T00:00:00Z').toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric'});}catch(e){return d;}};
 
 function lvLatest(){const L=LV.meta.latest,host=document.getElementById('lvLatest');if(!host)return;
   host.innerHTML=`<span class="now"><span class="dot"></span>${L._live?'Live now':'Latest reading'}</span>`+
