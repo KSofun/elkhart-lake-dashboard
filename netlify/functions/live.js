@@ -46,8 +46,35 @@ const BUOY_TTL = 60 * 1000;
 
 exports.handler = async (event) => {
   const out = { updated: Math.floor(Date.now() / 1000) };
+  const Q = (event && event.queryStringParameters) || {};
   // ?fresh=1 bypasses the buoy cache (for debugging the vendor API)
-  const FRESH = !!(event && event.queryStringParameters && event.queryStringParameters.fresh);
+  const FRESH = !!Q.fresh;
+
+  // ?wxstats=1 -> full Tempest daily history, reduced to just the columns the dashboard needs.
+  // (Their stats endpoint returns every day since install in one huge payload; this trims it.)
+  if (Q.wxstats) {
+    try {
+      const r = await fetch(`https://swd.weatherflow.com/swd/rest/stats/device/${process.env.TEMPEST_DEVICE || "425196"}?token=${process.env.TEMPEST_TOKEN}`);
+      const j = await r.json();
+      const C = { date: 0, p: 1, tm: 4, tx: 5, tn: 6, rh: 7, uv: 14, sol: 17, wa: 19, wg: 20, wd: 22, lt: 24, rec: 26, rain: 28 };
+      const n = (v, d) => (v == null ? null : Math.round(v * Math.pow(10, d)) / Math.pow(10, d));
+      const rows = (j.stats_day || []).map((x) => [
+        x[C.date], n(x[C.p], 1), n(x[C.tm], 1), n(x[C.tx], 1), n(x[C.tn], 1), n(x[C.rh], 0),
+        n(x[C.sol], 0), n(x[C.uv], 1), n(x[C.wa], 1), n(x[C.wg], 1), n(x[C.wd], 0),
+        x[C.lt], x[C.rec], n(x[C.rain], 3),
+      ]);
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        body: JSON.stringify({
+          cols: ["date", "pressure_mb", "t_mean_c", "t_max_c", "t_min_c", "rh", "solar_max", "uv_max", "wind_avg_ms", "wind_gust_ms", "wind_dir", "strikes", "records", "rain_mm"],
+          first: j.first_ob_day_local, last: j.last_ob_day_local, count: rows.length, rows,
+        }),
+      };
+    } catch (e) {
+      return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ error: String(e) }) };
+    }
+  }
 
   // ---------- Tempest weather station ----------
   // Use the DEVICE observations endpoint (real-time). The station-level endpoint
